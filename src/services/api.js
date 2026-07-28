@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-// URIs de producción en Render
-const CATALOG_API_URL = 'https://catalog-api-32it.onrender.com'; // <-- Pon la URL de tu API de Catalog
-const BASKET_API_URL = 'https://basket-api-cma3.onrender.com';     // <-- Tu API de Basket ya confirmada
+// Ahora le pegan a Netlify en local, y Netlify se encarga de redirigir por detrás
+const CATALOG_API_URL = '/api/catalog'; 
+const BASKET_API_URL = '/api/basket';
 
 // Instancia para el Catálogo (Productos)
 export const catalogApi = axios.create({
