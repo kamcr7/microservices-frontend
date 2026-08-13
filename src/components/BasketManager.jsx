@@ -2,337 +2,235 @@ import React, { useState, useEffect } from 'react';
 import { basketService } from '../services/basketService';
 import { catalogService } from '../services/catalogService';
 import { checkoutService } from '../services/checkoutService';
+import { OrderReceipt } from './OrderReceipt';
+import { OrdersList } from './OrdersList';
 
-export default function BasketManager() {
-  const [searchUser, setSearchUser] = useState('Saul');
+export const BasketManager = () => {
+  const [userName, setUserName] = useState('Saul');
+  const [activeUser, setActiveUser] = useState('Saul');
   const [basket, setBasket] = useState({ userName: 'Saul', items: [] });
-  const [catalog, setCatalog] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [products, setProducts] = useState([]);
   const [createdOrder, setCreatedOrder] = useState(null);
+  const [activeTab, setActiveTab] = useState('shop'); // 'shop' o 'history'
+  const [loading, setLoading] = useState(false);
 
+  // Cargar catálogo y carrito del usuario activo
   useEffect(() => {
-    loadCatalog();
-    fetchBasket(searchUser);
-  }, []);
+    loadProducts();
+    loadBasket(activeUser);
+  }, [activeUser]);
 
-  // 1. Carga de catálogo con deserialización flexible
-  const loadCatalog = async () => {
+  const loadProducts = async () => {
     try {
-      setCatalogLoading(true);
-      const response = await catalogService.getProducts();
-      
-      let productsList = [];
-      if (Array.isArray(response)) {
-        productsList = response;
-      } else if (response && Array.isArray(response.data)) {
-        productsList = response.data;
-      } else if (response && Array.isArray(response.items)) {
-        productsList = response.items;
-      }
-
-      setCatalog(productsList);
+      const data = await catalogService.getProducts();
+      setProducts(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Error al obtener catálogo:", err);
-      setCatalog([]);
-    } finally {
-      setCatalogLoading(false);
+      console.error("Error al cargar productos:", err);
     }
   };
 
-  // 2. Consulta del carrito desde Basket.API
-  const fetchBasket = async (userName) => {
-    const cleanUser = userName.trim();
-    if (!cleanUser) return;
-    setLoading(true);
-    setCreatedOrder(null);
+  const loadBasket = async (user) => {
     try {
-      const response = await basketService.getBasketByUser(cleanUser);
-      const cartData = response?.cart || response;
-      if (cartData && Array.isArray(cartData.items)) {
-        setBasket({
-          userName: cartData.userName || cleanUser,
-          items: cartData.items
-        });
+      const data = await basketService.getBasket(user);
+      setBasket(data || { userName: user, items: [] });
+    } catch (err) {
+      console.error("Error al cargar carrito:", err);
+      setBasket({ userName: user, items: [] });
+    }
+  };
+
+  const handleUserChange = () => {
+    if (!userName.trim()) return;
+    setActiveUser(userName.trim());
+    setCreatedOrder(null);
+  };
+
+  const handleAddToCart = async (product) => {
+    try {
+      const currentItems = basket.items || [];
+      const existing = currentItems.find(i => (i.productId || i.id) === (product.id || product._id));
+      
+      let updatedItems = [];
+      if (existing) {
+        updatedItems = currentItems.map(i => 
+          (i.productId || i.id) === (product.id || product._id) 
+            ? { ...i, quantity: i.quantity + 1 } 
+            : i
+        );
       } else {
-        setBasket({ userName: cleanUser, items: [] });
+        updatedItems = [...currentItems, { 
+          productId: product.id || product._id, 
+          productName: product.name, 
+          price: product.price, 
+          quantity: 1 
+        }];
       }
-    } catch (error) {
-      console.error("Error al buscar el carrito:", error);
-      setBasket({ userName: cleanUser, items: [] });
+
+      const updated = await basketService.updateBasket({ userName: activeUser, items: updatedItems });
+      setBasket(updated);
+    } catch (err) {
+      console.error("Error al añadir al carrito:", err);
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (!basket.items || basket.items.length === 0) {
+      alert("El carrito está vacío");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const totalAmount = basket.items.reduce((acc, item) => acc + ((item.price || item.unitPrice || 0) * item.quantity), 0);
+      
+      // Procesa el checkout con el servicio
+      const res = await checkoutService.checkout(activeUser, basket.items, totalAmount);
+      
+      // Construye la orden localmente si la API no devuelve la estructura completa
+      const fullOrder = {
+        id: res.id || res._id || 'ORD-' + Math.floor(Math.random() * 1000000),
+        customerId: activeUser,
+        userName: activeUser,
+        createdAt: new Date().toISOString(),
+        status: res.status || 'Pending',
+        items: basket.items,
+        subtotal: totalAmount * 0.84,
+        tax: totalAmount * 0.16,
+        total: totalAmount,
+        totalPrice: totalAmount
+      };
+
+      setCreatedOrder(fullOrder);
+      
+      // Vaciar el carrito en el backend tras la compra
+      await basketService.deleteBasket(activeUser);
+      setBasket({ userName: activeUser, items: [] });
+    } catch (err) {
+      console.error("Error en Checkout:", err);
+      alert("Error al procesar la orden: " + (err.response?.data?.message || err.message));
     } finally {
       setLoading(false);
     }
   };
 
-  // 3. Sincronización con Basket.API / Redis
-  const syncBasketWithServer = async (updatedBasket) => {
-    setBasket(updatedBasket); // Actualización optimista en UI
-
-    const payload = {
-      userName: updatedBasket.userName,
-      items: updatedBasket.items.map((item) => ({
-        productId: String(item.productId || item.id || item._id || "1"),
-        productName: String(item.productName || item.name || 'Producto'),
-        price: Number(item.price || item.unitPrice || 0),
-        quantity: Number(item.quantity || 1),
-        color: item.color || "Default"
-      }))
-    };
-
-    try {
-      if (basketService && typeof basketService.updateBasket === 'function') {
-        return await basketService.updateBasket(payload);
-      }
-    } catch (err) {
-      console.warn("Aviso: No se pudo guardar en Basket.API, usando cache local.", err);
-    }
-  };
-
-  const handleAddFromCatalog = async (product) => {
-    const prodId = String(product.id || product._id || product.productId || "1");
-    const prodName = product.name || product.productName || "Producto";
-    const prodPrice = Number(product.price || 0);
-
-    const currentItems = basket?.items || [];
-    const existingIndex = currentItems.findIndex(
-      (i) => String(i.productId || i.id || i._id) === prodId
-    );
-
-    let updatedItems = [...currentItems];
-
-    if (existingIndex > -1) {
-      updatedItems[existingIndex] = {
-        ...updatedItems[existingIndex],
-        quantity: updatedItems[existingIndex].quantity + 1
-      };
-    } else {
-      updatedItems.push({
-        productId: prodId,
-        productName: prodName,
-        price: prodPrice,
-        quantity: 1
-      });
-    }
-
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-  };
-
-  const handleQuantityChange = async (productId, delta) => {
-    const currentItems = basket?.items || [];
-    const updatedItems = currentItems
-      .map((item) => {
-        const id = String(item.productId || item.id || item._id);
-        if (id === String(productId)) {
-          const newQty = item.quantity + delta;
-          return newQty > 0 ? { ...item, quantity: newQty } : null;
-        }
-        return item;
-      })
-      .filter(Boolean);
-
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-  };
-
-  const handleRemoveItem = async (productId) => {
-    const currentItems = basket?.items || [];
-    const updatedItems = currentItems.filter(
-      (item) => String(item.productId || item.id || item._id) !== String(productId)
-    );
-
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-  };
-
   const calculateTotal = () => {
-    if (!basket || !basket.items) return 0;
-    return basket.items.reduce((acc, i) => acc + (i.price || i.unitPrice || 0) * i.quantity, 0);
-  };
-
-  // 4. Checkout utilizando checkoutService (Corregido)
-  const handleCheckout = async () => {
-    if (!basket.items || basket.items.length === 0) {
-      alert("El carrito está vacío. Agrega productos antes de finalizar la compra.");
-      return;
-    }
-
-    try {
-      const activeUserName = basket.userName || searchUser || 'Saul';
-      const total = calculateTotal();
-
-      // Formatear items asegurando que price / unitPrice contengan el valor
-      const itemsToCheckout = basket.items.map(item => ({
-        ...item,
-        price: Number(item.price || item.unitPrice || 0),
-        unitPrice: Number(item.price || item.unitPrice || 0)
-      }));
-
-      const result = await checkoutService.checkout(activeUserName, itemsToCheckout, total);
-      
-      // Guardar el resultado para mostrar la tarjeta de confirmación en UI
-      setCreatedOrder(result);
-      
-      // Vaciar carrito local tras checkout exitoso
-      setBasket({ userName: activeUserName, items: [] });
-
-    } catch (error) {
-      console.error("Error en Checkout:", error);
-      const serverMsg = error.response?.data?.message || error.response?.data?.error || error.message;
-      alert("Error al procesar la orden: " + serverMsg);
-    }
+    if (!basket.items) return 0;
+    return basket.items.reduce((acc, item) => acc + ((item.price || item.unitPrice || 0) * item.quantity), 0);
   };
 
   return (
-    <div className="max-w-5xl mx-auto bg-white p-6 rounded-xl shadow-lg border mt-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-4 border-b pb-2">🔍 Buscar / Editar Carrito</h2>
-
-      {/* Buscador de usuario */}
-      <div className="flex gap-3 mb-6 bg-gray-50 p-4 rounded-lg border">
-        <label className="text-gray-700 font-semibold flex items-center">Usuario Activo:</label>
-        <input
-          type="text"
-          value={searchUser}
-          onChange={(e) => setSearchUser(e.target.value)}
-          placeholder="Ej: Saul, Mark..."
-          className="flex-1 border p-2 rounded shadow-sm focus:outline-blue-500"
-        />
+    <div className="max-w-6xl mx-auto p-4">
+      {/* Pestañas de Navegación */}
+      <div className="flex border-b mb-6 print:hidden">
         <button
-          onClick={() => fetchBasket(searchUser)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold transition cursor-pointer"
+          onClick={() => setActiveTab('shop')}
+          className={`py-2 px-4 font-bold border-b-2 ${activeTab === 'shop' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
-          Consultar / Cambiar
+          🛒 Tienda y Carrito
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`py-2 px-4 font-bold border-b-2 ${activeTab === 'history' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+        >
+          📋 Historial de Órdenes
         </button>
       </div>
 
-      {/* Confirmación de Orden */}
-      {createdOrder && (
-        <div className="mb-6 bg-green-50 border border-green-400 p-5 rounded-lg text-green-900">
-          <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
-          <p><strong>ID de Orden:</strong> {createdOrder.id || createdOrder.orderId || 'Generada'}</p>
-          <p><strong>Cliente:</strong> {createdOrder.customerId || basket.userName}</p>
-          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
-          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : calculateTotal().toFixed(2)}</p>
+      {activeTab === 'history' ? (
+        /* Vista de Historial de Órdenes */
+        <OrdersList activeUser={activeUser} onSelectOrder={(order) => {
+          setCreatedOrder(order);
+          setActiveTab('shop');
+        }} />
+      ) : createdOrder ? (
+        /* Vista de Orden Generada / Impresión PDF */
+        <div>
+          <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-4 print:hidden">
+            <strong>¡Orden Generada Exitosamente!</strong> Revisa el detalle a continuación para imprimir tu comprobante.
+          </div>
+          <OrderReceipt order={createdOrder} onBack={() => setCreatedOrder(null)} />
         </div>
-      )}
-
-      {loading ? (
-        <p className="text-center py-8 text-gray-500">Cargando datos del carrito...</p>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          
-          {/* Columna Izquierda: Productos del Catálogo */}
-          <div className="border rounded-lg p-4 bg-gray-50">
-            <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
-              📦 Productos del Catálogo
-            </h3>
-            {catalogLoading ? (
-              <p className="text-sm text-gray-500">Cargando catálogo...</p>
-            ) : catalog.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">No hay productos disponibles en el catálogo.</p>
-            ) : (
-              <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
-                {catalog.map((prod) => (
-                  <div
-                    key={prod.id || prod._id || prod.productId}
-                    className="flex justify-between items-center p-3 bg-white border rounded shadow-sm hover:border-blue-300 transition"
-                  >
+        /* Vista de Compra Principal */
+        <div>
+          {/* Selector de Usuario */}
+          <div className="bg-white p-4 rounded shadow mb-6 flex items-center gap-4 border">
+            <label className="font-bold text-gray-700">Usuario Activo:</label>
+            <input
+              type="text"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+              className="border p-2 rounded flex-1 max-w-xs"
+            />
+            <button
+              onClick={handleUserChange}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Consultar / Cambiar
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Productos del Catálogo */}
+            <div className="bg-white p-4 rounded shadow border">
+              <h3 className="font-bold text-lg mb-4 text-gray-800">📦 Productos del Catálogo</h3>
+              <div className="space-y-3">
+                {products.map((p) => (
+                  <div key={p.id || p._id} className="flex justify-between items-center border p-3 rounded">
                     <div>
-                      <p className="font-semibold text-gray-800 text-sm">{prod.name || prod.productName}</p>
-                      <p className="text-green-600 font-bold text-sm">${prod.price || 0}</p>
+                      <p className="font-bold text-gray-800">{p.name}</p>
+                      <p className="text-green-600 font-semibold">${Number(p.price).toFixed(2)}</p>
                     </div>
                     <button
-                      type="button"
-                      onClick={() => handleAddFromCatalog(prod)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded font-semibold transition cursor-pointer"
+                      onClick={() => handleAddToCart(p)}
+                      className="bg-blue-600 text-white text-xs px-3 py-2 rounded hover:bg-blue-700 font-bold"
                     >
                       + Añadir
                     </button>
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
 
-          {/* Columna Derecha: Carrito Activo */}
-          <div className="border rounded-lg p-4 bg-gray-50 flex flex-col justify-between">
-            <div>
-              <h3 className="font-bold text-blue-700 border-b pb-2 mb-3">
-                🛒 Carrito de {basket.userName}
-              </h3>
-
-              {basket.items.length === 0 ? (
-                <p className="text-gray-400 italic text-center py-8">
-                  No has agregado productos aún.
-                </p>
-              ) : (
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {basket.items.map((item) => {
-                    const itemId = item.productId || item.id || item._id;
-                    return (
-                      <div
-                        key={itemId}
-                        className="flex justify-between items-center bg-white p-3 rounded border shadow-sm"
-                      >
+            {/* Carrito de Compras */}
+            <div className="bg-white p-4 rounded shadow border flex flex-col justify-between">
+              <div>
+                <h3 className="font-bold text-lg mb-4 text-gray-800">🛒 Carrito de {activeUser}</h3>
+                {(!basket.items || basket.items.length === 0) ? (
+                  <p className="text-gray-400 text-center py-8">No has agregado productos aún.</p>
+                ) : (
+                  <div className="space-y-3 mb-4">
+                    {basket.items.map((item, idx) => (
+                      <div key={idx} className="flex justify-between items-center border p-2 rounded text-sm">
                         <div>
-                          <p className="font-semibold text-gray-800 text-sm">{item.productName}</p>
-                          <p className="text-gray-500 text-xs">
-                            ${(item.price || item.unitPrice || 0).toFixed(2)} c/u
-                          </p>
+                          <p className="font-bold">{item.productName || item.name}</p>
+                          <p className="text-gray-500">${Number(item.price || item.unitPrice || 0).toFixed(2)} c/u</p>
                         </div>
-
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center border rounded overflow-hidden">
-                            <button
-                              type="button"
-                              onClick={() => handleQuantityChange(itemId, -1)}
-                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold cursor-pointer"
-                            >
-                              -
-                            </button>
-                            <span className="px-3 text-sm font-semibold">{item.quantity}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleQuantityChange(itemId, 1)}
-                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold cursor-pointer"
-                            >
-                              +
-                            </button>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(itemId)}
-                            className="text-red-500 hover:text-red-700 font-bold px-1 text-lg cursor-pointer"
-                            title="Eliminar"
-                          >
-                            ✕
-                          </button>
-                        </div>
+                        <span className="bg-gray-100 px-2 py-1 rounded font-bold">x{item.quantity}</span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* Total y Checkout */}
-            <div className="border-t pt-4 mt-4">
-              <div className="flex justify-between items-center mb-4 text-lg font-bold">
-                <span>Total Acumulado:</span>
-                <span className="text-green-600">${calculateTotal().toFixed(2)}</span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={handleCheckout}
-                disabled={basket.items.length === 0}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg shadow transition cursor-pointer"
-              >
-                🏁 Finalizar Compra (Checkout)
-              </button>
+
+              {/* Botón Checkout */}
+              <div className="border-t pt-4">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-bold text-gray-700">Total Acumulado:</span>
+                  <span className="text-xl font-bold text-green-600">${calculateTotal().toFixed(2)}</span>
+                </div>
+                <button
+                  onClick={handleCheckout}
+                  disabled={loading || !basket.items || basket.items.length === 0}
+                  className="w-full bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 disabled:bg-gray-300 transition"
+                >
+                  {loading ? 'Procesando...' : '⚙️ Finalizar Compra (Checkout)'}
+                </button>
+              </div>
             </div>
           </div>
-
         </div>
       )}
     </div>
   );
-}
+};
