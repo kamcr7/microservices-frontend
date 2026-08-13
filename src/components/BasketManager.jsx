@@ -45,31 +45,37 @@ export const BasketManager = () => {
     setCreatedOrder(null);
   };
 
-  const handleAddToCart = async (product) => {
-    try {
-      const currentItems = basket.items || [];
-      const existing = currentItems.find(i => (i.productId || i.id) === (product.id || product._id));
-      
-      let updatedItems = [];
-      if (existing) {
-        updatedItems = currentItems.map(i => 
-          (i.productId || i.id) === (product.id || product._id) 
-            ? { ...i, quantity: i.quantity + 1 } 
-            : i
-        );
-      } else {
-        updatedItems = [...currentItems, { 
-          productId: product.id || product._id, 
-          productName: product.name, 
-          price: product.price, 
-          quantity: 1 
-        }];
-      }
+ const handleAddToCart = async (product) => {
+    const currentItems = basket.items || [];
+    const prodId = product.id || product._id;
+    const existing = currentItems.find(i => (i.productId || i.id) === prodId);
+    
+    let updatedItems = [];
+    if (existing) {
+      updatedItems = currentItems.map(i => 
+        (i.productId || i.id) === prodId 
+          ? { ...i, quantity: i.quantity + 1 } 
+          : i
+      );
+    } else {
+      updatedItems = [...currentItems, { 
+        productId: prodId, 
+        productName: product.name, 
+        price: Number(product.price || 0), 
+        quantity: 1 
+      }];
+    }
 
-      const updated = await basketService.updateBasket({ userName: activeUser, items: updatedItems });
-      setBasket(updated);
+    const newBasket = { userName: activeUser, items: updatedItems };
+
+    // 1. Actualizamos el estado UI de inmediato (sin esperar al servidor)
+    setBasket(newBasket);
+
+    // 2. Intentamos persistir en el backend en segundo plano sin bloquear la UI
+    try {
+      await basketService.updateBasket(newBasket);
     } catch (err) {
-      console.error("Error al añadir al carrito:", err);
+      console.warn("Backend de Basket no disponible (404), manteniendo carrito en cliente.");
     }
   };
 
