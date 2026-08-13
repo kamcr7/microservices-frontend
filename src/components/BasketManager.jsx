@@ -10,7 +10,6 @@ export default function BasketManager() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
 
-  // Cargar catálogo de productos al montar el componente
   useEffect(() => {
     loadCatalog();
     fetchBasket(searchUser);
@@ -19,19 +18,12 @@ export default function BasketManager() {
   const loadCatalog = async () => {
     try {
       setCatalogLoading(true);
-      // Intenta usar catalogService o realiza un fetch directo como respaldo
-      let products = [];
-      if (catalogService && typeof catalogService.getProducts === 'function') {
-        products = await catalogService.getProducts();
-      } else {
-        const res = await fetch('/api/catalog/products');
-        if (res.ok) {
-          products = await res.json();
-        }
-      }
-      setCatalog(Array.isArray(products) ? products : []);
+      const data = await catalogService.getProducts();
+      console.log("Catálogo cargado:", data);
+      const productsList = Array.isArray(data) ? data : (data?.data || []);
+      setCatalog(productsList);
     } catch (err) {
-      console.error("Error al cargar el catálogo:", err);
+      console.error("Error al obtener catálogo:", err);
     } finally {
       setCatalogLoading(false);
     }
@@ -66,17 +58,20 @@ export default function BasketManager() {
       await basketService.updateBasket(updatedBasket);
       setBasket(updatedBasket);
     } catch (err) {
-      console.error("Error guardando el carrito:", err);
+      console.error("Error al actualizar el carrito:", err);
       alert("Error al actualizar el carrito en el servidor");
     }
   };
 
-  // Añadir un producto del catálogo al carrito activo
   const handleAddFromCatalog = (product) => {
     if (!basket) return;
 
+    const prodId = product.id || product._id || product.productId || `prod-${Date.now()}`;
+    const prodName = product.name || product.productName;
+    const prodPrice = product.price || 0;
+
     const existingIndex = basket.items.findIndex(
-      (i) => (i.productId || i.id) === (product.id || product.productId)
+      (i) => (i.productId || i.id || i._id) === prodId
     );
 
     let updatedItems = [...basket.items];
@@ -88,23 +83,22 @@ export default function BasketManager() {
       };
     } else {
       updatedItems.push({
-        productId: product.id || product.productId || `prod-${Date.now()}`,
-        productName: product.name || product.productName,
-        price: product.price || 0,
+        productId: prodId,
+        productName: prodName,
+        price: prodPrice,
         quantity: 1
       });
     }
 
-    const updatedBasket = { ...basket, items: updatedItems };
-    updateBasketInServer(updatedBasket);
+    updateBasketInServer({ ...basket, items: updatedItems });
   };
 
-  // Cambiar cantidad (+1 / -1)
   const handleQuantityChange = (productId, delta) => {
     if (!basket) return;
     const updatedItems = basket.items
       .map((item) => {
-        if ((item.productId || item.id) === productId) {
+        const id = item.productId || item.id || item._id;
+        if (id === productId) {
           const newQty = item.quantity + delta;
           return newQty > 0 ? { ...item, quantity: newQty } : null;
         }
@@ -115,16 +109,14 @@ export default function BasketManager() {
     updateBasketInServer({ ...basket, items: updatedItems });
   };
 
-  // Eliminar item por completo
   const handleRemoveItem = (productId) => {
     if (!basket) return;
     const updatedItems = basket.items.filter(
-      (item) => (item.productId || item.id) !== productId
+      (item) => (item.productId || item.id || item._id) !== productId
     );
     updateBasketInServer({ ...basket, items: updatedItems });
   };
 
-  // Finalizar compra (Checkout)
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -140,7 +132,7 @@ export default function BasketManager() {
         customerId: basket.userName,
         basketId: basket.userName,
         items: basket.items.map((i) => ({
-          productId: i.productId || i.id || "prod-1",
+          productId: i.productId || i.id || i._id || "prod-1",
           productName: i.productName,
           unitPrice: i.price || i.unitPrice || 0,
           quantity: i.quantity
@@ -217,7 +209,7 @@ export default function BasketManager() {
       ) : basket ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
-          {/* Columna Izquierda: Catálogo de Productos */}
+          {/* Columna Izquierda: Productos del Catálogo */}
           <div className="border rounded-lg p-4 bg-gray-50">
             <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
               📦 Productos del Catálogo
@@ -230,7 +222,7 @@ export default function BasketManager() {
               <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
                 {catalog.map((prod) => (
                   <div
-                    key={prod.id || prod.productId}
+                    key={prod.id || prod._id || prod.productId}
                     className="flex justify-between items-center p-3 bg-white border rounded shadow-sm hover:border-blue-300 transition"
                   >
                     <div>
@@ -250,7 +242,7 @@ export default function BasketManager() {
             )}
           </div>
 
-          {/* Columna Derecha: Resumen del Carrito Activo */}
+          {/* Columna Derecha: Carrito Activo */}
           <div className="border rounded-lg p-4 bg-gray-50 flex flex-col justify-between">
             <div>
               <h3 className="font-bold text-blue-700 border-b pb-2 mb-3">
@@ -263,53 +255,56 @@ export default function BasketManager() {
                 </p>
               ) : (
                 <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {basket.items.map((item) => (
-                    <div
-                      key={item.productId || item.id}
-                      className="flex justify-between items-center bg-white p-3 rounded border shadow-sm"
-                    >
-                      <div>
-                        <p className="font-semibold text-gray-800 text-sm">{item.productName}</p>
-                        <p className="text-gray-500 text-xs">
-                          ${(item.price || item.unitPrice)?.toFixed(2)} c/u
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <div className="flex items-center border rounded overflow-hidden">
-                          <button
-                            type="button"
-                            onClick={() => handleQuantityChange(item.productId || item.id, -1)}
-                            className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
-                          >
-                            -
-                          </button>
-                          <span className="px-3 text-sm font-semibold">{item.quantity}</span>
-                          <button
-                            type="button"
-                            onClick={() => handleQuantityChange(item.productId || item.id, 1)}
-                            className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
-                          >
-                            +
-                          </button>
+                  {basket.items.map((item) => {
+                    const itemId = item.productId || item.id || item._id;
+                    return (
+                      <div
+                        key={itemId}
+                        className="flex justify-between items-center bg-white p-3 rounded border shadow-sm"
+                      >
+                        <div>
+                          <p className="font-semibold text-gray-800 text-sm">{item.productName}</p>
+                          <p className="text-gray-500 text-xs">
+                            ${(item.price || item.unitPrice)?.toFixed(2)} c/u
+                          </p>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveItem(item.productId || item.id)}
-                          className="text-red-500 hover:text-red-700 font-bold px-1 text-lg"
-                          title="Eliminar"
-                        >
-                          ✕
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center border rounded overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => handleQuantityChange(itemId, -1)}
+                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
+                            >
+                              -
+                            </button>
+                            <span className="px-3 text-sm font-semibold">{item.quantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleQuantityChange(itemId, 1)}
+                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
+                            >
+                              +
+                            </button>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveItem(itemId)}
+                            className="text-red-500 hover:text-red-700 font-bold px-1 text-lg"
+                            title="Eliminar"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
 
-            {/* Total y Botón de Checkout */}
+            {/* Total y Checkout */}
             <div className="border-t pt-4 mt-4">
               <div className="flex justify-between items-center mb-4 text-lg font-bold">
                 <span>Total Acumulado:</span>
