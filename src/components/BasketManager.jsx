@@ -6,6 +6,7 @@ export default function BasketManager() {
   const [basket, setBasket] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState(null); // Estado para mostrar confirmación
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -15,11 +16,11 @@ export default function BasketManager() {
     try {
       setLoading(true);
       setSearched(true);
+      setCreatedOrder(null); // Limpiar orden previa si busca de nuevo
       
       const response = await basketService.getBasketByUser(cleanUser);
       console.log("Datos del carrito obtenidos:", response);
       
-      // Adaptación de la respuesta plana o anidada en 'cart'
       const cartData = response?.cart || response;
       
       if (cartData && Array.isArray(cartData.items) && cartData.items.length > 0) {
@@ -38,20 +39,40 @@ export default function BasketManager() {
     }
   };
 
+  // Función actualizada para llamar al microservicio Ordering.API en Render
   const handleCheckout = async () => {
     if (!basket || !basket.userName) return;
-    if (!window.confirm(`¿Proceder al checkout para el usuario ${basket.userName}?`)) return;
+    if (!window.confirm(`¿Proceder a generar la orden para el usuario ${basket.userName}?`)) return;
 
     try {
       setLoading(true);
-      await basketService.checkout(basket.userName);
-      alert("¡Checkout realizado con éxito!");
-      setBasket(null);
-      setSearched(false);
-      setSearchUser('');
+      const idempotencyKey = crypto.randomUUID(); // Idempotency-Key requerida
+
+      const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey
+        },
+        body: JSON.stringify({
+          customerId: basket.userName,
+          basketId: basket.userName
+        })
+      });
+
+      if (response.status === 201) {
+        const orderData = await response.json();
+        setCreatedOrder(orderData); // Guardar datos para confirmación visual
+        setBasket(null);
+        setSearched(false);
+        setSearchUser('');
+      } else {
+        const errorText = await response.text();
+        alert(`Error (${response.status}): ${errorText || 'No se pudo procesar la orden.'}`);
+      }
     } catch (error) {
       console.error("Error en checkout:", error);
-      alert("No se pudo procesar el checkout.");
+      alert("Error de conexión con el Microservicio de Órdenes.");
     } finally {
       setLoading(false);
     }
@@ -79,8 +100,21 @@ export default function BasketManager() {
         </button>
       </form>
 
+      {/* Pantalla de Confirmación de la Orden (Requisito P8 del examen) */}
+      {createdOrder && (
+        <div className="mb-6 bg-green-50 border border-green-300 p-5 rounded-lg text-green-900">
+          <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
+          <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
+          <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
+
+          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
+          <p><strong>Fecha:</strong> {createdOrder.createdAt ? new Date(createdOrder.createdAt).toLocaleString() : new Date().toLocaleString()}</p>
+          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total?.toFixed(2)}</p>
+        </div>
+      )}
+
       {loading ? (
-        <p className="text-center py-6 text-gray-500">Buscando en la base de datos...</p>
+        <p className="text-center py-6 text-gray-500">Procesando solicitud...</p>
       ) : basket ? (
         <div className="border rounded-lg overflow-hidden shadow-sm">
           <div className="bg-blue-600 text-white px-4 py-3 font-bold flex justify-between items-center">
@@ -113,7 +147,7 @@ export default function BasketManager() {
           </div>
         </div>
       ) : (
-        searched && (
+        searched && !createdOrder && (
           <p className="text-center py-6 text-gray-400 text-sm border-2 border-dashed rounded-lg">
             El carrito de <strong className="text-gray-600">{searchUser}</strong> está vacío o no existe.
           </p>
