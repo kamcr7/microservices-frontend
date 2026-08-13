@@ -24,9 +24,10 @@ export default function App() {
       <nav style={{ padding: '15px 30px', backgroundColor: '#1a1a2e', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
         <h2 style={{ margin: 0 }}>🛒 MicroserviceApp</h2>
         <div>
-          <span style={{ marginRight: '20px', fontWeight: 'bold' }}>
-            👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : 'Cliente'})
-          </span>
+          <span>
+  👤 {currentUser?.username || currentUser?.name || currentUser?.email || 'Usuario'} 
+  {currentUser?.role === 'admin' ? ' (Admin)' : ' (Cliente)'}
+</span>
           <button 
             onClick={() => { authService.logout(); setCurrentUser(null); }}
             style={{ padding: '8px 16px', backgroundColor: '#e94560', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}

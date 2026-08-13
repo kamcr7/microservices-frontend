@@ -47,7 +47,9 @@ export default function Login({ onLoginSuccess }) {
 
     if (userFound) {
       onLoginSuccess({
-        username: userFound.username,
+        id: userFound.id,
+        name: userFound.username,       // 👈 Agregamos 'name'
+        username: userFound.username,   // 👈 Agregamos 'username'
         email: userFound.email,
         role: userFound.role
       });
@@ -57,55 +59,55 @@ export default function Login({ onLoginSuccess }) {
   };
 
   // 📝 LÓGICA DE REGISTRO
-  const handleRegister = (e) => {
-    e.preventDefault();
-    setErrorMsg('');
-    setSuccessMsg('');
+const handleRegister = (e) => {
+  e.preventDefault();
+  setErrorMsg('');
+  setSuccessMsg('');
 
-    if (!regUsername || !regEmail || !regPassword) {
-      setErrorMsg('Todos los campos son obligatorios.');
-      return;
-    }
+  if (!regUsername || !regEmail || !regPassword) {
+    setErrorMsg('Todos los campos son obligatorios.');
+    return;
+  }
 
-    const users = getUsersList();
-    const cleanUsername = regUsername.trim();
-    const cleanEmail = regEmail.trim().toLowerCase();
+  const users = getUsersList();
+  const cleanUsername = regUsername.trim();
+  const cleanEmail = regEmail.trim().toLowerCase();
 
-    // Validar si ya existe el usuario o correo
-    const exists = users.some(u => 
-      u.username.toLowerCase() === cleanUsername.toLowerCase() || 
-      u.email.toLowerCase() === cleanEmail
-    );
+  // Validar si ya existe el usuario o correo
+  const exists = users.some(u => 
+    u.username.toLowerCase() === cleanUsername.toLowerCase() || 
+    u.email.toLowerCase() === cleanEmail
+  );
 
-    if (exists) {
-      setErrorMsg('El nombre de usuario o correo ya está registrado.');
-      return;
-    }
+  if (exists) {
+    setErrorMsg('El nombre de usuario o correo ya está registrado.');
+    return;
+  }
 
-    // Crear nuevo usuario (Rol cliente por defecto)
-    const newUser = {
-      id: Date.now().toString(),
-      username: cleanUsername,
-      email: cleanEmail,
-      password: regPassword,
-      role: 'customer'
-    };
-
-    const updatedUsers = [...users, newUser];
-    localStorage.setItem('app_users_v1', JSON.stringify(updatedUsers));
-
-    setSuccessMsg('¡Cuenta creada con éxito! Ya puedes iniciar sesión.');
-    setIsRegisterMode(false);
-    
-    // Auto-llenar campos de login para comodidad
-    setIdentifier(cleanEmail);
-    setPassword(regPassword);
-
-    // Limpiar campos de registro
-    setRegUsername('');
-    setRegEmail('');
-    setRegPassword('');
+  // Crear nuevo usuario (Rol cliente por defecto)
+  const newUser = {
+    id: Date.now().toString(),
+    username: cleanUsername,
+    name: cleanUsername, // 👈 ¡AQUÍ! Agregamos la propiedad 'name'
+    email: cleanEmail,
+    password: regPassword,
+    role: 'customer'
   };
+
+  const updatedUsers = [...users, newUser];
+  localStorage.setItem('app_users_v1', JSON.stringify(updatedUsers));
+
+  // 🚀 INICIAR SESIÓN DE INMEDIATO CON EL NUEVO USUARIO
+  if (onLoginSuccess) {
+    onLoginSuccess({
+      id: newUser.id,
+      username: newUser.username,
+      name: newUser.username, // 👈 Le pasamos name explícitamente para el Navbar
+      email: newUser.email,
+      role: newUser.role
+    });
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
