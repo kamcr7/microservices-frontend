@@ -1,40 +1,12 @@
-import { catalogApi } from './api';
+import axios from 'axios';
+
+// Si no detecta la variable de Vercel, usa la URL directa de Render
+const BASE_URL = import.meta.env.VITE_CATALOG_URL || 'https://catalog-api-32it.onrender.com'; 
+// (Asegúrate de reemplazar 'https://catalog-api-n8co.onrender.com' por tu URL real de Catalog API)
 
 export const catalogService = {
   getProducts: async () => {
-    const response = await catalogApi.get('/products');
-    return response.data;
-  },
-
-  getProductById: async (id) => {
-    const response = await catalogApi.get(`/products/${id}`);
-    return response.data;
-  },
-
-  getProductsByCategory: async (category) => {
-    const response = await catalogApi.get(`/products/category/${category}`);
-    return response.data;
-  },
-
-  createProduct: async (productData) => {
-    const response = await catalogApi.post('/products', productData);
-    return response.data;
-  },
-
-  updateProduct: async (productData) => {
-    const response = await catalogApi.put('/products', productData);
-    return response.data;
-  },
-
-  // RUTA EXACTA DEFINIDA EN EL BACKEND
-  deleteProduct: async (product) => {
-    // Si el nombre no existe o está vacío, le asignamos un espacio en blanco
-    // para que la URL /products/by-name/%20 se arme y viaje al backend
-    const name = product.name && product.name.trim() ? product.name.trim() : " ";
-    const nameParam = encodeURIComponent(name);
-    
-    console.log(`[LIMPIEZA] Eliminando fantasma en: DELETE /products/by-name/${nameParam}`);
-    const response = await catalogApi.delete(`/products/by-name/${nameParam}`);
+    const response = await axios.get(BASE_URL);
     return response.data;
   }
 };
