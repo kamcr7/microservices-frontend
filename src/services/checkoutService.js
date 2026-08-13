@@ -1,7 +1,9 @@
-// services/checkoutService.js
 import axios from 'axios';
 
-const CHECKOUT_API_URL = 'https://ordering-api-nico.onrender.com/api/orders';
+// ✅ Corregido para leer la variable de Vite o usar la URL correcta de Render (n8co)
+const CHECKOUT_API_URL = import.meta.env.VITE_ORDERING_URL 
+  ? `${import.meta.env.VITE_ORDERING_URL}/api/orders`
+  : 'https://ordering-api-n8co.onrender.com/api/orders';
 
 export const checkoutService = {
   checkout: async (userName, items, totalAmount) => {
