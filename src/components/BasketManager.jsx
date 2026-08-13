@@ -143,21 +143,34 @@ export default function BasketManager() {
     await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
-  // 4. Checkout utilizando checkoutService
-  const handleCheckout = async () => {
-  try {
-    // basket.items debe ser el arreglo con los productos visibles en pantalla
-    await checkoutService.checkout(activeUser, basket.items, totalPrice);
-    alert("¡Orden creada con éxito!");
-  } catch (error) {
-    console.error("Error en Checkout:", error);
-    alert("Error al procesar la orden: " + (error.response?.data?.error || error.message));
-  }
-};
-
   const calculateTotal = () => {
     if (!basket || !basket.items) return 0;
     return basket.items.reduce((acc, i) => acc + (i.price || i.unitPrice || 0) * i.quantity, 0);
+  };
+
+  // 4. Checkout utilizando checkoutService (Corregido)
+  const handleCheckout = async () => {
+    if (!basket.items || basket.items.length === 0) {
+      alert("El carrito está vacío. Agrega productos antes de finalizar la compra.");
+      return;
+    }
+
+    try {
+      const activeUserName = basket.userName || searchUser || 'Saul';
+      const total = calculateTotal();
+
+      const result = await checkoutService.checkout(activeUserName, basket.items, total);
+      
+      // Guardar el resultado para mostrar la tarjeta de confirmación en UI
+      setCreatedOrder(result);
+      
+      // Vaciar carrito tras checkout exitoso
+      setBasket({ userName: activeUserName, items: [] });
+
+    } catch (error) {
+      console.error("Error en Checkout:", error);
+      alert("Error al procesar la orden: " + (error.response?.data?.error || error.message));
+    }
   };
 
   return (
@@ -176,7 +189,7 @@ export default function BasketManager() {
         />
         <button
           onClick={() => fetchBasket(searchUser)}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold transition"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded font-semibold transition cursor-pointer"
         >
           Consultar / Cambiar
         </button>
@@ -188,7 +201,7 @@ export default function BasketManager() {
           <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
           <p><strong>ID de Orden:</strong> {createdOrder.id || createdOrder.orderId || 'Generada'}</p>
           <p><strong>Cliente:</strong> {createdOrder.customerId || basket.userName}</p>
-          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Submitted'}</span></p>
+          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
           <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : calculateTotal().toFixed(2)}</p>
         </div>
       )}
