@@ -47,7 +47,6 @@ export default function BasketManager({ currentUser }) {
     loadBasket(activeUser);
   }, [activeUser]);
 
-  // Cargar catálogo garantizando persistencia sincronizada
   const loadGlobalCatalog = () => {
     const savedCatalog = localStorage.getItem('global_catalog_v2');
     if (savedCatalog) {
@@ -58,12 +57,10 @@ export default function BasketManager({ currentUser }) {
         console.error("Error al leer el catálogo almacenado", e);
       }
     }
-    // Si no hay nada guardado aún, inicializamos con los productos base
     setProducts(DEFAULT_PRODUCTS);
     localStorage.setItem('global_catalog_v2', JSON.stringify(DEFAULT_PRODUCTS));
   };
 
-  // Función para guardar cambios en el catálogo y compartirlos con todos los roles
   const updateGlobalCatalog = (newList) => {
     setProducts(newList);
     localStorage.setItem('global_catalog_v2', JSON.stringify(newList));
@@ -82,7 +79,6 @@ export default function BasketManager({ currentUser }) {
     if (!productForm.name || !productForm.price) return;
 
     if (editingId) {
-      // ✏️ EDITAR
       const updatedList = products.map(p => 
         (p.id || p._id) === editingId 
           ? { ...p, name: productForm.name, price: Number(productForm.price), imageUrl: productForm.imageUrl } 
@@ -91,7 +87,6 @@ export default function BasketManager({ currentUser }) {
       updateGlobalCatalog(updatedList);
       setEditingId(null);
     } else {
-      // ➕ AGREGAR
       const newProd = {
         id: 'PROD-' + Date.now().toString(),
         name: productForm.name,
@@ -119,7 +114,6 @@ export default function BasketManager({ currentUser }) {
     setProductForm({ name: '', price: '', imageUrl: '' });
   };
 
-  // 🗑️ ELIMINAR
   const handleDeleteProduct = (id) => {
     if (window.confirm("¿Seguro que deseas eliminar este producto del catálogo?")) {
       const updatedList = products.filter(p => (p.id || p._id) !== id);
@@ -127,7 +121,7 @@ export default function BasketManager({ currentUser }) {
     }
   };
 
-  // --- ACCIONES DE CLIENTE ---
+  // --- ACCIONES DEL CARRITO DE CLIENTE ---
   const handleAddToCart = async (product) => {
     const currentItems = basket.items || [];
     const prodId = product.id || product._id;
@@ -147,6 +141,46 @@ export default function BasketManager({ currentUser }) {
       }];
     }
 
+    updateBasketState(updatedItems);
+  };
+
+  // ➖ Reducir Cantidad de un producto
+  const handleDecreaseQuantity = (productId) => {
+    const currentItems = basket.items || [];
+    const updatedItems = currentItems.map(i => {
+      const id = i.productId || i.id;
+      if (id === productId) {
+        return { ...i, quantity: i.quantity - 1 };
+      }
+      return i;
+    }).filter(i => i.quantity > 0); // Si llega a 0 se elimina automáticamente
+
+    updateBasketState(updatedItems);
+  };
+
+  // ➕ Aumentar Cantidad
+  const handleIncreaseQuantity = (productId) => {
+    const currentItems = basket.items || [];
+    const updatedItems = currentItems.map(i => {
+      const id = i.productId || i.id;
+      if (id === productId) {
+        return { ...i, quantity: i.quantity + 1 };
+      }
+      return i;
+    });
+
+    updateBasketState(updatedItems);
+  };
+
+  // 🗑️ Eliminar Producto Completo del Carrito
+  const handleRemoveFromCart = (productId) => {
+    const currentItems = basket.items || [];
+    const updatedItems = currentItems.filter(i => (i.productId || i.id) !== productId);
+    updateBasketState(updatedItems);
+  };
+
+  // Guardar carrito actualizado
+  const updateBasketState = async (updatedItems) => {
     const newBasket = { userName: activeUser, items: updatedItems };
     setBasket(newBasket);
     try { await basketService.updateBasket(newBasket); } catch (err) {}
@@ -335,7 +369,7 @@ export default function BasketManager({ currentUser }) {
             </div>
           </div>
 
-          {/* LADO DERECHO: CARRITO (CLIENTE) O MENSAJE (ADMIN) */}
+          {/* LADO DERECHO: CARRITO CON GESTIÓN DE PRODUCTOS (CLIENTE) */}
           {!isAdmin ? (
             <div className="bg-white p-4 rounded shadow border flex flex-col justify-between">
               <div>
@@ -344,15 +378,46 @@ export default function BasketManager({ currentUser }) {
                   <p className="text-gray-400 text-center py-8">No has agregado productos aún.</p>
                 ) : (
                   <div className="space-y-3 mb-4">
-                    {basket.items.map((item, idx) => (
-                      <div key={idx} className="flex justify-between items-center border p-2 rounded text-sm">
-                        <div>
-                          <p className="font-bold">{item.productName || item.name}</p>
-                          <p className="text-gray-500">${Number(item.price || item.unitPrice || 0).toFixed(2)} c/u</p>
+                    {basket.items.map((item, idx) => {
+                      const itemId = item.productId || item.id;
+                      return (
+                        <div key={idx} className="flex justify-between items-center border p-3 rounded text-sm bg-gray-50">
+                          <div>
+                            <p className="font-bold text-gray-800">{item.productName || item.name}</p>
+                            <p className="text-gray-500 text-xs">${Number(item.price || item.unitPrice || 0).toFixed(2)} c/u</p>
+                          </div>
+
+                          {/* CONTROLES DE CANTIDAD Y ELIMINACIÓN */}
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center border rounded bg-white overflow-hidden shadow-sm">
+                              <button
+                                onClick={() => handleDecreaseQuantity(itemId)}
+                                className="px-2 py-1 text-gray-600 hover:bg-gray-100 font-bold text-sm border-r"
+                                title="Disminuir"
+                              >
+                                -
+                              </button>
+                              <span className="px-3 text-xs font-bold">{item.quantity}</span>
+                              <button
+                                onClick={() => handleIncreaseQuantity(itemId)}
+                                className="px-2 py-1 text-gray-600 hover:bg-gray-100 font-bold text-sm border-l"
+                                title="Aumentar"
+                              >
+                                +
+                              </button>
+                            </div>
+
+                            <button
+                              onClick={() => handleRemoveFromCart(itemId)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded transition"
+                              title="Quitar del carrito"
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         </div>
-                        <span className="bg-gray-100 px-2 py-1 rounded font-bold">x{item.quantity}</span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
