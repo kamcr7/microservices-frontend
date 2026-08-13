@@ -39,7 +39,7 @@ export default function BasketManager() {
     }
   };
 
-  // Función actualizada para llamar al microservicio Ordering.API en Render
+  // Función actualizada para llamar al microservicio Ordering.API enviando los items
   const handleCheckout = async () => {
     if (!basket || !basket.userName) return;
     if (!window.confirm(`¿Proceder a generar la orden para el usuario ${basket.userName}?`)) return;
@@ -56,11 +56,17 @@ export default function BasketManager() {
         },
         body: JSON.stringify({
           customerId: basket.userName,
-          basketId: basket.userName
+          basketId: basket.userName,
+          items: basket.items.map(item => ({
+            productId: item.productId || "prod-1",
+            productName: item.productName,
+            unitPrice: item.price || item.unitPrice,
+            quantity: item.quantity
+          }))
         })
       });
 
-      if (response.status === 201) {
+      if (response.ok || response.status === 201) {
         const orderData = await response.json();
         setCreatedOrder(orderData); // Guardar datos para confirmación visual
         setBasket(null);
@@ -100,13 +106,12 @@ export default function BasketManager() {
         </button>
       </form>
 
-      {/* Pantalla de Confirmación de la Orden (Requisito P8 del examen) */}
+      {/* Pantalla de Confirmación de la Orden */}
       {createdOrder && (
         <div className="mb-6 bg-green-50 border border-green-300 p-5 rounded-lg text-green-900">
           <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
           <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
           <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
-
           <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
           <p><strong>Fecha:</strong> {createdOrder.createdAt ? new Date(createdOrder.createdAt).toLocaleString() : new Date().toLocaleString()}</p>
           <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total?.toFixed(2)}</p>
