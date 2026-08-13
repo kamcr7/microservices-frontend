@@ -145,44 +145,15 @@ export default function BasketManager() {
 
   // 4. Checkout utilizando checkoutService
   const handleCheckout = async () => {
-    if (!basket || !basket.items || basket.items.length === 0) {
-      alert("El carrito está vacío.");
-      return;
-    }
-
-    if (!window.confirm(`¿Proceder a generar la orden para ${basket.userName}?`)) return;
-
-    setLoading(true);
-    try {
-      // Guardar formalmente el estado del carrito antes del checkout
-      await syncBasketWithServer(basket);
-
-      // Usar checkoutService en lugar del fetch manual
-      const orderResult = await checkoutService.checkout(
-        basket.userName,
-        basket.items,
-        calculateTotal()
-      );
-
-      setCreatedOrder(orderResult || {
-        id: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
-        customerId: basket.userName,
-        total: calculateTotal(),
-        status: 'Submitted'
-      });
-
-      // Vaciar carrito tras la compra
-      const emptyBasket = { userName: basket.userName, items: [] };
-      await syncBasketWithServer(emptyBasket);
-
-    } catch (error) {
-      console.error("Error en Checkout:", error);
-      const errMsg = error.response?.data?.error || error.response?.data || error.message;
-      alert(`Error al procesar la orden:\n${typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  try {
+    // basket.items debe ser el arreglo con los productos visibles en pantalla
+    await checkoutService.checkout(activeUser, basket.items, totalPrice);
+    alert("¡Orden creada con éxito!");
+  } catch (error) {
+    console.error("Error en Checkout:", error);
+    alert("Error al procesar la orden: " + (error.response?.data?.error || error.message));
+  }
+};
 
   const calculateTotal = () => {
     if (!basket || !basket.items) return 0;
