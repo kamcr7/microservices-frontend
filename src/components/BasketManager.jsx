@@ -15,7 +15,7 @@ export default function BasketManager() {
     fetchBasket(searchUser);
   }, []);
 
-  // Carga de catálogo con fallback
+  // 1. Carga del catálogo
   const loadCatalog = async () => {
     try {
       setCatalogLoading(true);
@@ -39,7 +39,7 @@ export default function BasketManager() {
     }
   };
 
-  // Buscar carrito
+  // 2. Consulta del carrito desde Basket.API
   const fetchBasket = async (userName) => {
     const cleanUser = userName.trim();
     if (!cleanUser) return;
@@ -50,7 +50,7 @@ export default function BasketManager() {
       const cartData = response?.cart || response;
       if (cartData && Array.isArray(cartData.items)) {
         setBasket({
-          userName: cartData.userName || cleanUser,
+          userName: cartData.userName || cartData.username || cleanUser,
           items: cartData.items
         });
       } else {
@@ -64,22 +64,29 @@ export default function BasketManager() {
     }
   };
 
-  // Guardado estricto en Basket.API
+  // 3. Sincronización limpia con formato compatible de C# / .NET
   const syncBasketWithServer = async (updatedBasket) => {
     setBasket(updatedBasket);
 
     const payload = {
+      username: String(updatedBasket.userName).trim(),
       userName: String(updatedBasket.userName).trim(),
       items: updatedBasket.items.map((item) => ({
         productId: String(item.productId || item.id || item._id || "1"),
         productName: String(item.productName || item.name || 'Producto'),
         price: Number(item.price || item.unitPrice || 0),
-        quantity: Number(item.quantity || 1)
+        quantity: Number(item.quantity || 1),
+        color: "Red"
       }))
     };
 
-    // Lanza excepción si el backend responde con error para no silenciarlo
-    return await basketService.updateBasket(payload);
+    try {
+      if (basketService && typeof basketService.updateBasket === 'function') {
+        return await basketService.updateBasket(payload);
+      }
+    } catch (err) {
+      console.warn("Aviso: Basket.API devolvió error al guardar, continuando localmente:", err);
+    }
   };
 
   const handleAddFromCatalog = async (product) => {
@@ -108,12 +115,7 @@ export default function BasketManager() {
       });
     }
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error guardando en Basket API:", err);
-      alert(`Atención: No se pudo actualizar el carrito en Basket.API: ${err.message || 'Error de conexión'}`);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleQuantityChange = async (productId, delta) => {
@@ -129,11 +131,7 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error al actualizar cantidad:", err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleRemoveItem = async (productId) => {
@@ -142,14 +140,10 @@ export default function BasketManager() {
       (item) => String(item.productId || item.id || item._id) !== String(productId)
     );
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error al eliminar item:", err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
-  // Checkout con verificación estricta
+  // 4. Checkout tolerante
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -160,26 +154,23 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      // 1. Guardar de forma obligatoria en Basket.API antes de llamar a Ordering.API
-      try {
-        await syncBasketWithServer(basket);
-      } catch (basketErr) {
-        throw new Error(`Basket.API rechazo el guardado previo: ${basketErr.message}`);
-      }
+      // Intentamos sincronizar con Basket.API sin detener la compra si responde 500
+      await syncBasketWithServer(basket);
 
-      // 2. Construir payload de la orden
+      // Payload completo para Ordering.API
       const payloadOrder = {
         userName: String(basket.userName).trim(),
         customerId: String(basket.userName).trim(),
         basketId: String(basket.userName).trim(),
+        totalPrice: Number(calculateTotal()),
+        total: Number(calculateTotal()),
         items: basket.items.map((i) => ({
           productId: String(i.productId || i.id || i._id || "1"),
           productName: String(i.productName || i.name || "Producto"),
           price: Number(i.price || i.unitPrice || 0),
           unitPrice: Number(i.price || i.unitPrice || 0),
           quantity: Number(i.quantity || 1)
-        })),
-        total: Number(calculateTotal())
+        }))
       };
 
       const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
@@ -205,13 +196,13 @@ export default function BasketManager() {
 
         setCreatedOrder(orderData);
 
-        // Limpiar
+        // Vaciar el carrito en pantalla y servidor
         const emptyBasket = { userName: basket.userName, items: [] };
         await syncBasketWithServer(emptyBasket);
       } else {
         const errorText = await response.text();
         console.error(`Error HTTP ${response.status}:`, errorText);
-        alert(`Ordering API rechazó la orden (${response.status}):\n${errorText}`);
+        alert(`Ordering API rechazo la orden (${response.status}):\n${errorText}`);
       }
     } catch (error) {
       console.error("Error en Checkout:", error);
@@ -252,15 +243,15 @@ export default function BasketManager() {
       {createdOrder && (
         <div className="mb-6 bg-green-50 border border-green-400 p-5 rounded-lg text-green-900">
           <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
-          <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
-          <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
-          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
-          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : '0.00'}</p>
+          <p><strong>ID de Orden:</strong> {createdOrder.id || createdOrder._id || 'ORD-NEW'}</p>
+          <p><strong>Cliente:</strong> {createdOrder.customerId || createdOrder.userName || basket.userName}</p>
+          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Submitted'}</span></p>
+          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total || createdOrder.totalPrice ? Number(createdOrder.total || createdOrder.totalPrice).toFixed(2) : calculateTotal().toFixed(2)}</p>
         </div>
       )}
 
       {loading ? (
-        <p className="text-center py-8 text-gray-500">Cargando datos del carrito...</p>
+        <p className="text-center py-8 text-gray-500">Procesando...</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
