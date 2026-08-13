@@ -1,37 +1,46 @@
-import { Routes, Route } from 'react-router-dom';
-import Navbar from './components/Navbar';
-import ProductList from './components/ProductList'; 
-import ProductCreate from './components/ProductCreate';
-import BasketManager from './components/BasketManager'; // Búsqueda de carritos
-import BasketCreate from './components/BasketCreate';   // Formulario de creación
+import React, { useState, useEffect } from 'react';
+import Login from './components/Login';
+import BasketManager from './components/BasketManager';
+import { authService } from './services/authService';
 
-const Home = () => (
-  <div className="text-center mt-20">
-    <h1 className="text-5xl font-bold text-blue-600 mb-4">MicroserviceApp</h1>
-    <p className="text-gray-500 text-lg">Gestión de productos y carritos de compras distribuidos</p>
-  </div>
-);
+export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
 
-function App() {
+  // Al cargar, verificamos si ya hay una sesión guardada
+  useEffect(() => {
+    const loggedInUser = authService.getCurrentUser();
+    if (loggedInUser) setCurrentUser(loggedInUser);
+  }, []);
+
+  // Si no hay usuario, mostramos la pantalla de Login
+  if (!currentUser) {
+    return <Login onLoginSuccess={setCurrentUser} />;
+  }
+
+  // Si hay usuario, mostramos la App Principal
   return (
-    <div className="min-h-screen bg-gray-100">
-      <Navbar />
-      
-      <main className="container mx-auto mt-8 bg-transparent p-6 min-h-[500px]">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          
-          {/* Rutas de Productos (Catalog) */}
-          <Route path="/products" element={<ProductList />} />
-          <Route path="/products/create" element={<ProductCreate />} />
-          
-          {/* Rutas de Carritos (Basket) */}
-          <Route path="/baskets/create" element={<BasketCreate />} />
-          <Route path="/baskets/search" element={<BasketManager />} />
-        </Routes>
-      </main>
+    <div style={{ backgroundColor: '#f4f7f6', minHeight: '100vh', paddingBottom: '2rem' }}>
+      {/* Barra de Navegación Superior */}
+      <nav style={{ padding: '15px 30px', backgroundColor: '#1a1a2e', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+        <h2 style={{ margin: 0 }}>🛒 MicroserviceApp</h2>
+        <div>
+          <span style={{ marginRight: '20px', fontWeight: 'bold' }}>
+            👤 {currentUser.name} ({currentUser.role === 'admin' ? 'Admin' : 'Cliente'})
+          </span>
+          <button 
+            onClick={() => { authService.logout(); setCurrentUser(null); }}
+            style={{ padding: '8px 16px', backgroundColor: '#e94560', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            Cerrar Sesión
+          </button>
+        </div>
+      </nav>
+
+      {/* Contenedor Principal */}
+      <div style={{ maxWidth: '1200px', margin: '20px auto', backgroundColor: '#fff', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+        {/* Le pasamos el usuario logueado al administrador del carrito/tienda */}
+        <BasketManager currentUser={currentUser} />
+      </div>
     </div>
   );
 }
-
-export default App;

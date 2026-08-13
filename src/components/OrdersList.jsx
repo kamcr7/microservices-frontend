@@ -1,92 +1,126 @@
-import React, { useEffect, useState } from 'react';
-import { checkoutService } from '../services/checkoutService';
+import React, { useState, useEffect } from 'react';
+import { orderingService } from '../services/orderingService';
 
-export const OrdersList = ({ activeUser, onSelectOrder }) => {
+export const OrdersList = ({ currentUser, onSelectOrder }) => {
   const [orders, setOrders] = useState([]);
-  const [filterMode, setFilterMode] = useState('user'); // 'user' o 'all'
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const isAdmin = currentUser?.role === 'admin';
 
-  const fetchOrders = async () => {
+  useEffect(() => {
+    loadOrders();
+  }, [currentUser]);
+
+  const loadOrders = async () => {
     setLoading(true);
     try {
-      let data = [];
-      if (filterMode === 'user' && activeUser) {
-        data = await checkoutService.getOrdersByCustomer(activeUser); // GET /api/orders/customer/{id}[cite: 1]
-      } else {
-        data = await checkoutService.getAllOrders(); // GET /api/orders[cite: 1]
-      }
+      // Intentamos cargar las órdenes desde el microservicio
+      const data = await orderingService.getOrders();
       setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Error al cargar órdenes", err);
+      console.warn("No se pudieron cargar las órdenes de la API, usando mock local si aplica.", err);
       setOrders([]);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchOrders();
-  }, [filterMode, activeUser]);
+  // 🔒 FILTRADO SEGÚN ROL:
+  // Si es Admin ve todas. Si es Cliente, filtra por su usuario exacto.
+  const displayedOrders = isAdmin
+    ? orders
+    : orders.filter(order => 
+        (order.userName || order.customerId || '').toLowerCase() === (currentUser?.username || '').toLowerCase()
+      );
+
+  if (loading) {
+    return <p className="text-center py-8 text-gray-500">Cargando historial de órdenes...</p>;
+  }
 
   return (
-    <div className="p-4 bg-white rounded-lg shadow">
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-bold">Historial de Órdenes de Compra</h3>
-        <div className="flex gap-2">
-          <button 
-            onClick={() => setFilterMode('user')}
-            className={`px-3 py-1 rounded text-sm ${filterMode === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            Órdenes de {activeUser}
-          </button>
-          <button 
-            onClick={() => setFilterMode('all')}
-            className={`px-3 py-1 rounded text-sm ${filterMode === 'all' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}
-          >
-            Todas las Órdenes
-          </button>
+    <div className="bg-white p-6 rounded shadow border">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-800">
+            {isAdmin ? '📋 Historial Global de Órdenes (Modo Admin)' : '📋 Mis Órdenes de Compra'}
+          </h2>
+          <p className="text-sm text-gray-500">
+            {isAdmin 
+              ? 'Viendo todas las transacciones realizadas por los clientes.' 
+              : `Órdenes registradas para el usuario: ${currentUser?.username}`}
+          </p>
         </div>
+        <button 
+          onClick={loadOrders}
+          className="px-3 py-1 bg-gray-100 text-gray-700 text-sm rounded hover:bg-gray-200 border"
+        >
+          🔄 Actualizar
+        </button>
       </div>
 
-      {loading ? (
-        <p className="text-gray-500">Cargando órdenes...</p>
-      ) : orders.length === 0 ? (
-        <p className="text-gray-500">No se encontraron órdenes registradas.</p>
+      {displayedOrders.length === 0 ? (
+        <div className="text-center py-8 bg-gray-50 rounded border border-dashed text-gray-400">
+          {isAdmin 
+            ? 'No hay órdenes registradas en el sistema aún.' 
+            : 'Aún no has realizado ninguna compra con tu cuenta.'}
+        </div>
       ) : (
-        <table className="w-full text-left text-sm border-collapse">
-          <thead>
-            <tr className="border-b bg-gray-50">
-              <th className="p-2">ID Orden</th>
-              <th className="p-2">Cliente</th>
-              <th className="p-2">Fecha</th>
-              <th className="p-2">Total</th>
-              <th className="p-2">Estado</th>
-              <th className="p-2">Acción</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {orders.map((o) => (
-              <tr key={o.id || o._id}>
-                <td className="p-2 font-mono text-xs">{o.id || o._id}</td>
-                <td className="p-2">{o.customerId || o.userName}</td>
-                <td className="p-2">{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '-'}</td>
-                <td className="p-2 font-bold">${Number(o.total || o.totalPrice || 0).toFixed(2)}</td>
-                <td className="p-2">
-                  <span className="px-2 py-0.5 rounded text-xs bg-gray-100">{o.status || 'Pending'}</span>
-                </td>
-                <td className="p-2">
-                  <button 
-                    onClick={() => onSelectOrder(o)}
-                    className="text-blue-600 hover:underline text-xs"
-                  >
-                    Ver / Imprimir
-                  </button>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b bg-gray-50 text-gray-600 text-sm">
+                <th className="py-3 px-4">ID Órden</th>
+                {/* Columna visible únicamente para el Administrador */}
+                {isAdmin && <th className="py-3 px-4">Cliente / Usuario</th>}
+                <th className="py-3 px-4">Fecha</th>
+                <th className="py-3 px-4 text-right">Total</th>
+                <th className="py-3 px-4 text-center">Estado</th>
+                <th className="py-3 px-4 text-center">Acción</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y text-sm">
+              {displayedOrders.map((order) => (
+                <tr key={order.id || order._id} className="hover:bg-gray-50">
+                  <td className="py-3 px-4 font-mono text-xs font-semibold text-gray-700">
+                    {order.id || order._id}
+                  </td>
+                  
+                  {/* Dato del usuario comprador para el Admin */}
+                  {isAdmin && (
+                    <td className="py-3 px-4 font-bold text-blue-600">
+                      👤 {order.userName || order.customerId || 'Anónimo'}
+                    </td>
+                  )}
+
+                  <td className="py-3 px-4 text-gray-500">
+                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Reciente'}
+                  </td>
+
+                  <td className="py-3 px-4 text-right font-bold text-gray-900">
+                    ${Number(order.total || order.totalPrice || 0).toFixed(2)}
+                  </td>
+
+                  <td className="py-3 px-4 text-center">
+                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
+                      {order.status || 'Pending'}
+                    </span>
+                  </td>
+
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      onClick={() => onSelectOrder && onSelectOrder(order)}
+                      className="px-3 py-1 bg-blue-600 text-white font-bold text-xs rounded hover:bg-blue-700 shadow"
+                    >
+                      🖨️ Ver / Imprimir PDF
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
 };
+
+export default OrdersList;
