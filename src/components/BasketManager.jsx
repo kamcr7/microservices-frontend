@@ -116,8 +116,8 @@ export default function BasketManager({ currentUser }) {
       customerId: activeUser,
       userName: activeUser,
       createdAt: new Date().toISOString(),
-      status: 'Pending',
-      items: basket.items,
+      status: 'Completed',
+      items: [...basket.items],
       subtotal: totalAmount * 0.84,
       tax: totalAmount * 0.16,
       total: totalAmount,
@@ -130,8 +130,13 @@ export default function BasketManager({ currentUser }) {
         fullOrder.id = res.id || res._id;
       }
     } catch (err) {
-      console.warn("Fallo backend checkout, generando orden en cliente.");
+      console.warn("Fallo en API checkout backend, continuando con persistencia local.");
     } finally {
+      // 💾 PERSISTENCIA EN LOCALSTORAGE: Guardar la nueva orden localmente
+      const localOrders = JSON.parse(localStorage.getItem('local_orders') || '[]');
+      localOrders.unshift(fullOrder); // Agregar al inicio de la lista
+      localStorage.setItem('local_orders', JSON.stringify(localOrders));
+
       setCreatedOrder(fullOrder);
       setBasket({ userName: activeUser, items: [] });
       try { await basketService.deleteBasket(activeUser); } catch (e) {}

@@ -11,24 +11,37 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
 
   const loadOrders = async () => {
     setLoading(true);
+    let apiOrders = [];
+
+    // 1. Intentar cargar órdenes desde la API Backend
     try {
-      // Intentamos consumir la API directamente sin depender de un archivo de servicios extra
       const res = await fetch('https://ordering-api-n1co.onrender.com/api/orders');
       if (res.ok) {
         const data = await res.json();
-        setOrders(Array.isArray(data) ? data : []);
-      } else {
-        setOrders([]);
+        if (Array.isArray(data)) apiOrders = data;
       }
     } catch (err) {
-      console.warn("No se pudieron cargar las órdenes de la API:", err);
-      setOrders([]);
-    } finally {
-      setLoading(false);
+      console.warn("API de órdenes offline o no disponible, usando caché local.");
     }
+
+    // 2. Cargar órdenes guardadas en localStorage
+    const localOrders = JSON.parse(localStorage.getItem('local_orders') || '[]');
+
+    // 3. Fusionar ambas listas evitando duplicados por ID
+    const mergedMap = new Map();
+    [...localOrders, ...apiOrders].forEach(order => {
+      const id = order.id || order._id;
+      if (id && !mergedMap.has(id)) {
+        mergedMap.set(id, order);
+      }
+    });
+
+    const combinedOrders = Array.from(mergedMap.values());
+    setOrders(combinedOrders);
+    setLoading(false);
   };
 
-  // 🔒 FILTRADO POR ROL:
+  // 🔒 FILTRADO SEGÚN ROL:
   // Si es Admin ve todas. Si es Cliente, filtra por su nombre de usuario.
   const displayedOrders = isAdmin
     ? orders
@@ -94,7 +107,7 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                   )}
 
                   <td className="py-3 px-4 text-gray-500">
-                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '13/8/2026'}
+                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Reciente'}
                   </td>
 
                   <td className="py-3 px-4 text-right font-bold text-gray-900">
@@ -102,8 +115,8 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                   </td>
 
                   <td className="py-3 px-4 text-center">
-                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">
-                      {order.status || 'Pending'}
+                    <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
+                      {order.status || 'Completed'}
                     </span>
                   </td>
 
@@ -112,7 +125,7 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                       onClick={() => onSelectOrder && onSelectOrder(order)}
                       className="px-3 py-1 bg-blue-600 text-white font-bold text-xs rounded hover:bg-blue-700 shadow"
                     >
-                      🖨️ Ver / Imprimir
+                      🖨️ Ver / Imprimir PDF
                     </button>
                   </td>
                 </tr>
