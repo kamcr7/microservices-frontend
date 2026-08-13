@@ -1,21 +1,20 @@
-import { basketApi } from './api';
+import axios from 'axios';
+
+const RAW_BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com'; // Coloca aquí tu URL de Render de Basket
+const BASE_BASKET_URL = RAW_BASKET_URL.replace(/\/$/, '');
 
 export const basketService = {
-  // Obtener el carrito de un usuario específico
-  getBasketByUser: async (userName) => {
-    const response = await basketApi.get(`/basket/${userName}`);
-    return response.data;
-  },
+  getBasket: async (userName) => {
+    try {
+      // Petición a /basket/{userName}
+      const response = await axios.get(`${BASE_BASKET_URL}/basket/${userName}`);
+      const data = response.data;
 
-  // Crear o actualizar el carrito en Basket.API (escribe en basket-cache)
-  updateBasket: async (basketData) => {
-    const response = await basketApi.post('/basket', basketData);
-    return response.data;
-  },
-
-  // Finalizar compra / Checkout
-  checkout: async (userName) => {
-    const response = await basketApi.post('/basket/checkout', { userName });
-    return response.data;
+      // Retornar el objeto del carrito o la lista de items mapeada
+      return data?.basket || data || { userName, items: [] };
+    } catch (error) {
+      console.error(`Error al obtener el carrito de ${userName}:`, error);
+      return { userName, items: [] };
+    }
   }
 };
