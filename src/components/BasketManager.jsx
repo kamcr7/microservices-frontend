@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { basketService } from '../services/basketService';
 import { createOrder } from '../services/orderingService';
 
@@ -22,6 +22,11 @@ export default function BasketManager() {
       setLoading(false);
     }
   };
+
+  // Carga automática del carrito al entrar a la página
+  useEffect(() => {
+    fetchBasket(searchUser);
+  }, []);
 
   const handleQuantityChange = async (productId, delta) => {
     if (!basket) return;
@@ -81,7 +86,6 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      // Intentamos primero con la función de Ordering y de respaldo con Basket Checkout
       let result;
       try {
         result = await createOrder(basket.userName, basket.userName);
