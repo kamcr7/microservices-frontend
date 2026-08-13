@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { basketService } from '../services/basketService';
 import { catalogService } from '../services/catalogService';
+import { checkoutService } from '../services/checkoutService';
 
 export default function BasketManager() {
   const [searchUser, setSearchUser] = useState('Saul');
@@ -64,7 +65,7 @@ export default function BasketManager() {
     }
   };
 
-  // 3. Sincronización en segundo plano con Basket.API / Redis
+  // 3. Sincronización con Basket.API / Redis
   const syncBasketWithServer = async (updatedBasket) => {
     setBasket(updatedBasket); // Actualización optimista en UI
 
@@ -74,7 +75,8 @@ export default function BasketManager() {
         productId: String(item.productId || item.id || item._id || "1"),
         productName: String(item.productName || item.name || 'Producto'),
         price: Number(item.price || item.unitPrice || 0),
-        quantity: Number(item.quantity || 1)
+        quantity: Number(item.quantity || 1),
+        color: item.color || "Default"
       }))
     };
 
@@ -141,7 +143,7 @@ export default function BasketManager() {
     await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
-  // 4. Checkout tolerante a errores de respuesta
+  // 4. Checkout utilizando checkoutService
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -152,55 +154,31 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
+      // Guardar formalmente el estado del carrito antes del checkout
       await syncBasketWithServer(basket);
 
-      const payloadOrder = {
-        userName: String(basket.userName),
-        customerId: String(basket.userName),
-        basketId: String(basket.userName),
-        items: basket.items.map((i) => ({
-          productId: String(i.productId || i.id || i._id || "1"),
-          productName: String(i.productName || i.name || "Producto"),
-          price: Number(i.price || i.unitPrice || 0),
-          unitPrice: Number(i.price || i.unitPrice || 0),
-          quantity: Number(i.quantity || 1)
-        })),
-        total: Number(calculateTotal())
-      };
+      // Usar checkoutService en lugar del fetch manual
+      const orderResult = await checkoutService.checkout(
+        basket.userName,
+        basket.items,
+        calculateTotal()
+      );
 
-      const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payloadOrder)
+      setCreatedOrder(orderResult || {
+        id: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
+        customerId: basket.userName,
+        total: calculateTotal(),
+        status: 'Submitted'
       });
 
-      if (response.ok || response.status === 201 || response.status === 200) {
-        let orderData;
-        try {
-          orderData = await response.json();
-        } catch {
-          orderData = { 
-            id: `ORD-${Math.floor(100000 + Math.random() * 900000)}`, 
-            customerId: basket.userName, 
-            total: calculateTotal(), 
-            status: 'Submitted' 
-          };
-        }
+      // Vaciar carrito tras la compra
+      const emptyBasket = { userName: basket.userName, items: [] };
+      await syncBasketWithServer(emptyBasket);
 
-        setCreatedOrder(orderData);
-
-        const emptyBasket = { userName: basket.userName, items: [] };
-        await syncBasketWithServer(emptyBasket);
-      } else {
-        const errorText = await response.text();
-        console.error(`Error HTTP ${response.status}:`, errorText);
-        alert(`Error al procesar la orden (${response.status}):\n${errorText}`);
-      }
     } catch (error) {
       console.error("Error en Checkout:", error);
-      alert("Error en el proceso de Checkout: " + error.message);
+      const errMsg = error.response?.data?.error || error.response?.data || error.message;
+      alert(`Error al procesar la orden:\n${typeof errMsg === 'object' ? JSON.stringify(errMsg) : errMsg}`);
     } finally {
       setLoading(false);
     }
@@ -237,10 +215,10 @@ export default function BasketManager() {
       {createdOrder && (
         <div className="mb-6 bg-green-50 border border-green-400 p-5 rounded-lg text-green-900">
           <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
-          <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
-          <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
-          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
-          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : '0.00'}</p>
+          <p><strong>ID de Orden:</strong> {createdOrder.id || createdOrder.orderId || 'Generada'}</p>
+          <p><strong>Cliente:</strong> {createdOrder.customerId || basket.userName}</p>
+          <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Submitted'}</span></p>
+          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : calculateTotal().toFixed(2)}</p>
         </div>
       )}
 
