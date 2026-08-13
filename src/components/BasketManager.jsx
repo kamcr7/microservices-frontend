@@ -52,38 +52,31 @@ export default function BasketManager() {
     }
   };
 
-  const updateBasketInServer = async (updatedBasket) => {
-    // 1. Actualización optimista en la UI inmediata
-    setBasket(updatedBasket);
+  // Función de guardado síncrono en Backend (basket-cache)
+  const syncBasketWithServer = async (updatedBasket) => {
+    setBasket(updatedBasket); // Actualizar pantalla
 
-    // 2. Intento de persistencia en backend
-    try {
-      const payload = {
-        userName: updatedBasket.userName,
-        items: updatedBasket.items.map((item) => ({
-          productId: item.productId || item.id || item._id || `prod-${Date.now()}`,
-          productName: item.productName || item.name || 'Producto',
-          price: Number(item.price || item.unitPrice || 0),
-          quantity: Number(item.quantity || 1)
-        }))
-      };
+    const payload = {
+      userName: updatedBasket.userName,
+      items: updatedBasket.items.map((item) => ({
+        productId: String(item.productId || item.id || item._id || "1"),
+        productName: String(item.productName || item.name || 'Producto'),
+        price: Number(item.price || item.unitPrice || 0),
+        quantity: Number(item.quantity || 1)
+      }))
+    };
 
-      if (basketService && typeof basketService.updateBasket === 'function') {
-        await basketService.updateBasket(payload);
-      }
-    } catch (err) {
-      console.warn("Aviso: No se pudo sincronizar en backend, pero los cambios se aplican localmente.", err);
-    }
+    return await basketService.updateBasket(payload);
   };
 
-  const handleAddFromCatalog = (product) => {
-    const prodId = product.id || product._id || product.productId || `prod-${Date.now()}`;
-    const prodName = product.name || product.productName || "Producto sin nombre";
+  const handleAddFromCatalog = async (product) => {
+    const prodId = String(product.id || product._id || product.productId || "1");
+    const prodName = product.name || product.productName || "Producto";
     const prodPrice = Number(product.price || 0);
 
     const currentItems = basket?.items || [];
     const existingIndex = currentItems.findIndex(
-      (i) => (i.productId || i.id || i._id) === prodId
+      (i) => String(i.productId || i.id || i._id) === prodId
     );
 
     let updatedItems = [...currentItems];
@@ -102,15 +95,20 @@ export default function BasketManager() {
       });
     }
 
-    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      console.error("Error al guardar producto en basket-cache:", err);
+      alert("Error al guardar en el servidor. Revisa si Basket.API está activo.");
+    }
   };
 
-  const handleQuantityChange = (productId, delta) => {
+  const handleQuantityChange = async (productId, delta) => {
     const currentItems = basket?.items || [];
     const updatedItems = currentItems
       .map((item) => {
-        const id = item.productId || item.id || item._id;
-        if (id === productId) {
+        const id = String(item.productId || item.id || item._id);
+        if (id === String(productId)) {
           const newQty = item.quantity + delta;
           return newQty > 0 ? { ...item, quantity: newQty } : null;
         }
@@ -118,19 +116,27 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      console.error("Error al actualizar cantidad:", err);
+    }
   };
 
-  const handleRemoveItem = (productId) => {
+  const handleRemoveItem = async (productId) => {
     const currentItems = basket?.items || [];
     const updatedItems = currentItems.filter(
-      (item) => (item.productId || item.id || item._id) !== productId
+      (item) => String(item.productId || item.id || item._id) !== String(productId)
     );
 
-    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      console.error("Error al eliminar item:", err);
+    }
   };
 
-const handleCheckout = async () => {
+  const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
       return;
@@ -140,31 +146,21 @@ const handleCheckout = async () => {
 
     setLoading(true);
     try {
-      // 1. Mapear items con estructura limpia
-      const formattedItems = basket.items.map((i) => ({
-        productId: String(i.productId || i.id || i._id || "1"),
-        productName: String(i.productName || i.name || "Producto"),
-        price: Number(i.price || i.unitPrice || 0),
-        unitPrice: Number(i.price || i.unitPrice || 0),
-        quantity: Number(i.quantity || 1)
-      }));
+      // 1. Asegurar la persistencia antes de llamar al checkout
+      await syncBasketWithServer(basket);
 
-      // 2. Intentar asegurar la persistencia en Basket API
-      try {
-        await basketService.updateBasket({
-          userName: basket.userName,
-          items: formattedItems
-        });
-      } catch (errBasket) {
-        console.warn("Aviso al guardar basket previo:", errBasket.message);
-      }
-
-      // 3. Crear payload y consumir Ordering API directamente
+      // 2. Ejecutar Checkout en Ordering.API
       const payloadOrder = {
         userName: basket.userName,
         customerId: basket.userName,
         basketId: basket.userName,
-        items: formattedItems,
+        items: basket.items.map((i) => ({
+          productId: String(i.productId || i.id || i._id || "1"),
+          productName: String(i.productName || i.name || "Producto"),
+          price: Number(i.price || i.unitPrice || 0),
+          unitPrice: Number(i.price || i.unitPrice || 0),
+          quantity: Number(i.quantity || 1)
+        })),
         total: Number(calculateTotal())
       };
 
@@ -191,14 +187,9 @@ const handleCheckout = async () => {
 
         setCreatedOrder(orderData);
 
-        // SOLO si la orden fue exitosa, limpiamos el carrito
+        // Limpiar únicamente tras éxito real
         const emptyBasket = { userName: basket.userName, items: [] };
-        setBasket(emptyBasket);
-        try {
-          await basketService.updateBasket(emptyBasket);
-        } catch (e) {
-          console.warn("Error limpiando backend:", e);
-        }
+        await syncBasketWithServer(emptyBasket);
       } else {
         const errorText = await response.text();
         console.error(`Error HTTP ${response.status}:`, errorText);
@@ -246,7 +237,7 @@ const handleCheckout = async () => {
           <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
           <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
           <p><strong>Estado:</strong> <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">{createdOrder.status || 'Pending'}</span></p>
-          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? createdOrder.total.toFixed(2) : '0.00'}</p>
+          <p className="text-lg font-bold mt-2">Total Pagado: ${createdOrder.total ? Number(createdOrder.total).toFixed(2) : '0.00'}</p>
         </div>
       )}
 
