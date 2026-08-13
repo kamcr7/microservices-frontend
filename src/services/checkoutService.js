@@ -4,20 +4,26 @@ const ORDERING_URL = import.meta.env.VITE_ORDERING_URL || 'https://ordering-api-
 
 export const checkoutService = {
   checkout: async (userName, items, totalPrice) => {
-    // Es vital asegurar que userName coincida exactamente con la clave de Redis ("Saul")
     const payload = {
-      userName: userName.trim(), // Limpia espacios accidentales
-      customerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-      totalPrice: totalPrice,
-      
-      // Mapear la lista de productos actual
-      items: items.map(item => ({
-        productId: item.productId || item.id,
-        productName: item.productName || item.name,
-        price: item.price,
-        quantity: item.quantity,
-        color: item.color || "Default"
-      }))
+      basketCheckoutDto: {
+        userName: userName.trim(),
+        customerId: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        totalPrice: totalPrice,
+        // Datos de envío por defecto
+        firstName: "Saul",
+        lastName: "Dev",
+        emailAddress: "saul@example.com",
+        addressLine: "Av. Principal 123",
+        country: "Mexico",
+        state: "CDMX",
+        zipCode: "01000",
+        // Datos de pago por defecto
+        cardName: "Saul Dev",
+        cardNumber: "1111222233334444",
+        expiration: "12/28",
+        cvv: "123",
+        paymentMethod: 1
+      }
     };
 
     const response = await axios.post(`${ORDERING_URL}/api/orders`, payload);
