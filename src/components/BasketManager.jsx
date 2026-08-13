@@ -4,7 +4,7 @@ import { catalogService } from '../services/catalogService';
 
 export default function BasketManager() {
   const [searchUser, setSearchUser] = useState('Saul');
-  const [basket, setBasket] = useState(null);
+  const [basket, setBasket] = useState({ userName: 'Saul', items: [] });
   const [catalog, setCatalog] = useState([]);
   const [loading, setLoading] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -19,7 +19,6 @@ export default function BasketManager() {
     try {
       setCatalogLoading(true);
       const data = await catalogService.getProducts();
-      console.log("Catálogo cargado:", data);
       const productsList = Array.isArray(data) ? data : (data?.data || []);
       setCatalog(productsList);
     } catch (err) {
@@ -54,27 +53,40 @@ export default function BasketManager() {
   };
 
   const updateBasketInServer = async (updatedBasket) => {
+    // 1. Actualización optimista en la UI inmediata
+    setBasket(updatedBasket);
+
+    // 2. Intento de persistencia en backend
     try {
-      await basketService.updateBasket(updatedBasket);
-      setBasket(updatedBasket);
+      const payload = {
+        userName: updatedBasket.userName,
+        items: updatedBasket.items.map((item) => ({
+          productId: item.productId || item.id || item._id || `prod-${Date.now()}`,
+          productName: item.productName || item.name || 'Producto',
+          price: Number(item.price || item.unitPrice || 0),
+          quantity: Number(item.quantity || 1)
+        }))
+      };
+
+      if (basketService && typeof basketService.updateBasket === 'function') {
+        await basketService.updateBasket(payload);
+      }
     } catch (err) {
-      console.error("Error al actualizar el carrito:", err);
-      alert("Error al actualizar el carrito en el servidor");
+      console.warn("Aviso: No se pudo sincronizar en backend, pero los cambios se aplican localmente.", err);
     }
   };
 
   const handleAddFromCatalog = (product) => {
-    if (!basket) return;
-
     const prodId = product.id || product._id || product.productId || `prod-${Date.now()}`;
-    const prodName = product.name || product.productName;
-    const prodPrice = product.price || 0;
+    const prodName = product.name || product.productName || "Producto sin nombre";
+    const prodPrice = Number(product.price || 0);
 
-    const existingIndex = basket.items.findIndex(
+    const currentItems = basket?.items || [];
+    const existingIndex = currentItems.findIndex(
       (i) => (i.productId || i.id || i._id) === prodId
     );
 
-    let updatedItems = [...basket.items];
+    let updatedItems = [...currentItems];
 
     if (existingIndex > -1) {
       updatedItems[existingIndex] = {
@@ -90,12 +102,12 @@ export default function BasketManager() {
       });
     }
 
-    updateBasketInServer({ ...basket, items: updatedItems });
+    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleQuantityChange = (productId, delta) => {
-    if (!basket) return;
-    const updatedItems = basket.items
+    const currentItems = basket?.items || [];
+    const updatedItems = currentItems
       .map((item) => {
         const id = item.productId || item.id || item._id;
         if (id === productId) {
@@ -106,15 +118,16 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    updateBasketInServer({ ...basket, items: updatedItems });
+    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleRemoveItem = (productId) => {
-    if (!basket) return;
-    const updatedItems = basket.items.filter(
+    const currentItems = basket?.items || [];
+    const updatedItems = currentItems.filter(
       (item) => (item.productId || item.id || item._id) !== productId
     );
-    updateBasketInServer({ ...basket, items: updatedItems });
+
+    updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleCheckout = async () => {
@@ -134,8 +147,8 @@ export default function BasketManager() {
         items: basket.items.map((i) => ({
           productId: i.productId || i.id || i._id || "prod-1",
           productName: i.productName,
-          unitPrice: i.price || i.unitPrice || 0,
-          quantity: i.quantity
+          unitPrice: Number(i.price || i.unitPrice || 0),
+          quantity: Number(i.quantity || 1)
         }))
       };
 
@@ -151,9 +164,8 @@ export default function BasketManager() {
       if (response.ok || response.status === 201) {
         const orderData = await response.json();
         setCreatedOrder(orderData);
-        const emptyBasket = { ...basket, items: [] };
-        setBasket(emptyBasket);
-        await updateBasketInServer(emptyBasket);
+        const emptyBasket = { userName: basket.userName, items: [] };
+        updateBasketInServer(emptyBasket);
       } else {
         const errText = await response.text();
         alert(`Error en el servidor (${response.status}): ${errText || 'No se pudo procesar la orden.'}`);
@@ -206,7 +218,7 @@ export default function BasketManager() {
 
       {loading ? (
         <p className="text-center py-8 text-gray-500">Cargando datos del carrito...</p>
-      ) : basket ? (
+      ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
           {/* Columna Izquierda: Productos del Catálogo */}
@@ -227,12 +239,12 @@ export default function BasketManager() {
                   >
                     <div>
                       <p className="font-semibold text-gray-800 text-sm">{prod.name || prod.productName}</p>
-                      <p className="text-green-600 font-bold text-sm">${prod.price}</p>
+                      <p className="text-green-600 font-bold text-sm">${prod.price || 0}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => handleAddFromCatalog(prod)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded font-semibold transition"
+                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded font-semibold transition cursor-pointer"
                     >
                       + Añadir
                     </button>
@@ -265,7 +277,7 @@ export default function BasketManager() {
                         <div>
                           <p className="font-semibold text-gray-800 text-sm">{item.productName}</p>
                           <p className="text-gray-500 text-xs">
-                            ${(item.price || item.unitPrice)?.toFixed(2)} c/u
+                            ${(item.price || item.unitPrice || 0).toFixed(2)} c/u
                           </p>
                         </div>
 
@@ -274,7 +286,7 @@ export default function BasketManager() {
                             <button
                               type="button"
                               onClick={() => handleQuantityChange(itemId, -1)}
-                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
+                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold cursor-pointer"
                             >
                               -
                             </button>
@@ -282,7 +294,7 @@ export default function BasketManager() {
                             <button
                               type="button"
                               onClick={() => handleQuantityChange(itemId, 1)}
-                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
+                              className="px-2 py-0.5 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold cursor-pointer"
                             >
                               +
                             </button>
@@ -291,7 +303,7 @@ export default function BasketManager() {
                           <button
                             type="button"
                             onClick={() => handleRemoveItem(itemId)}
-                            className="text-red-500 hover:text-red-700 font-bold px-1 text-lg"
+                            className="text-red-500 hover:text-red-700 font-bold px-1 text-lg cursor-pointer"
                             title="Eliminar"
                           >
                             ✕
@@ -314,7 +326,7 @@ export default function BasketManager() {
                 type="button"
                 onClick={handleCheckout}
                 disabled={basket.items.length === 0}
-                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg shadow transition"
+                className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-bold py-3 rounded-lg shadow transition cursor-pointer"
               >
                 🏁 Finalizar Compra (Checkout)
               </button>
@@ -322,7 +334,7 @@ export default function BasketManager() {
           </div>
 
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
