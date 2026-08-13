@@ -1,17 +1,16 @@
-import axios from 'axios';
-
-const BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com';
+import api from './api'; // O axios según tu configuración
 
 export const basketService = {
-  getBasketByUser: async (userName) => {
-    const res = await axios.get(`${BASKET_URL}/basket/${userName}`);
-    return res.data;
+  getBasket: async (userName) => {
+    const response = await api.get(`/api/baskets/${userName}`);
+    return response.data;
   },
-
   updateBasket: async (basketData) => {
-    // Si ya viene formateado con { cart: ... } lo usa, si no, lo envuelve automáticamente
-    const payload = basketData.cart ? basketData : { cart: basketData };
-    const res = await axios.post(`${BASKET_URL}/basket`, payload);
-    return res.data;
+    const response = await api.post('/api/baskets', basketData);
+    return response.data;
+  },
+  deleteBasket: async (userName) => {
+    const response = await api.delete(`/api/baskets/${userName}`);
+    return response.data;
   }
 };
