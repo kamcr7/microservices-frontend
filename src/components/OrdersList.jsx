@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { orderingService } from '../services/orderingService';
 
 export const OrdersList = ({ currentUser, onSelectOrder }) => {
   const [orders, setOrders] = useState([]);
@@ -13,19 +12,24 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
   const loadOrders = async () => {
     setLoading(true);
     try {
-      // Intentamos cargar las órdenes desde el microservicio
-      const data = await orderingService.getOrders();
-      setOrders(Array.isArray(data) ? data : []);
+      // Intentamos consumir la API directamente sin depender de un archivo de servicios extra
+      const res = await fetch('https://ordering-api-n1co.onrender.com/api/orders');
+      if (res.ok) {
+        const data = await res.json();
+        setOrders(Array.isArray(data) ? data : []);
+      } else {
+        setOrders([]);
+      }
     } catch (err) {
-      console.warn("No se pudieron cargar las órdenes de la API, usando mock local si aplica.", err);
+      console.warn("No se pudieron cargar las órdenes de la API:", err);
       setOrders([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // 🔒 FILTRADO SEGÚN ROL:
-  // Si es Admin ve todas. Si es Cliente, filtra por su usuario exacto.
+  // 🔒 FILTRADO POR ROL:
+  // Si es Admin ve todas. Si es Cliente, filtra por su nombre de usuario.
   const displayedOrders = isAdmin
     ? orders
     : orders.filter(order => 
@@ -69,7 +73,6 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
             <thead>
               <tr className="border-b bg-gray-50 text-gray-600 text-sm">
                 <th className="py-3 px-4">ID Órden</th>
-                {/* Columna visible únicamente para el Administrador */}
                 {isAdmin && <th className="py-3 px-4">Cliente / Usuario</th>}
                 <th className="py-3 px-4">Fecha</th>
                 <th className="py-3 px-4 text-right">Total</th>
@@ -84,7 +87,6 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                     {order.id || order._id}
                   </td>
                   
-                  {/* Dato del usuario comprador para el Admin */}
                   {isAdmin && (
                     <td className="py-3 px-4 font-bold text-blue-600">
                       👤 {order.userName || order.customerId || 'Anónimo'}
@@ -92,7 +94,7 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                   )}
 
                   <td className="py-3 px-4 text-gray-500">
-                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : 'Reciente'}
+                    {order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '13/8/2026'}
                   </td>
 
                   <td className="py-3 px-4 text-right font-bold text-gray-900">
@@ -110,7 +112,7 @@ export const OrdersList = ({ currentUser, onSelectOrder }) => {
                       onClick={() => onSelectOrder && onSelectOrder(order)}
                       className="px-3 py-1 bg-blue-600 text-white font-bold text-xs rounded hover:bg-blue-700 shadow"
                     >
-                      🖨️ Ver / Imprimir PDF
+                      🖨️ Ver / Imprimir
                     </button>
                   </td>
                 </tr>
