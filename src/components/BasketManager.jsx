@@ -140,31 +140,34 @@ const handleCheckout = async () => {
 
     setLoading(true);
     try {
-      // Payload estandarizado para Microservicio de Órdenes (Ordering.API)
-      const payload = {
+      // 1. Sincronizar primero los datos en Basket.API -> basket-cache
+      const payloadBasket = {
         userName: basket.userName,
-        customerId: basket.userName,
-        buyer: basket.userName,
-        basketId: basket.userName,
         items: basket.items.map((i) => ({
           productId: String(i.productId || i.id || i._id || "1"),
           productName: String(i.productName || i.name || "Producto"),
-          unitPrice: Number(i.price || i.unitPrice || 0),
           price: Number(i.price || i.unitPrice || 0),
-          units: Number(i.quantity || 1),
           quantity: Number(i.quantity || 1)
-        })),
-        total: Number(calculateTotal())
+        }))
       };
 
-      console.log("Enviando Payload a Ordering API:", JSON.stringify(payload));
+      await basketService.updateBasket(payloadBasket);
+
+      // 2. Ejecutar la llamada de checkout a Ordering.API
+      const payloadOrder = {
+        userName: basket.userName,
+        customerId: basket.userName,
+        basketId: basket.userName,
+        items: payloadBasket.items,
+        total: Number(calculateTotal())
+      };
 
       const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payloadOrder)
       });
 
       if (response.ok || response.status === 201 || response.status === 200) {
@@ -182,17 +185,18 @@ const handleCheckout = async () => {
 
         setCreatedOrder(orderData);
         
-        // Limpiar el carrito local y en servidor tras checkout exitoso
+        // 3. Limpiar carrito tras la orden
         const emptyBasket = { userName: basket.userName, items: [] };
-        updateBasketInServer(emptyBasket);
+        setBasket(emptyBasket);
+        await basketService.updateBasket(emptyBasket);
       } else {
         const errorText = await response.text();
         console.error(`Error HTTP ${response.status}:`, errorText);
-        alert(`Error al procesar la orden (Status ${response.status}):\n${errorText || 'Respuesta inválida del microservicio'}`);
+        alert(`Error al procesar la orden (Status ${response.status}):\n${errorText}`);
       }
     } catch (error) {
-      console.error("Error de conexión con microservicio de órdenes:", error);
-      alert("No se pudo conectar con el Microservicio de Órdenes en Render.\nAsegúrate de que la API esté activa o revisa la consola (F12).");
+      console.error("Error en Checkout:", error);
+      alert("Error en el proceso de Checkout: " + error.message);
     } finally {
       setLoading(false);
     }
