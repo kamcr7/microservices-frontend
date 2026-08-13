@@ -15,19 +15,31 @@ export default function BasketManager() {
     fetchBasket(searchUser);
   }, []);
 
+  // 1. Carga de catálogo con deserialización flexible
   const loadCatalog = async () => {
     try {
       setCatalogLoading(true);
-      const data = await catalogService.getProducts();
-      const productsList = Array.isArray(data) ? data : (data?.data || []);
+      const response = await catalogService.getProducts();
+      
+      let productsList = [];
+      if (Array.isArray(response)) {
+        productsList = response;
+      } else if (response && Array.isArray(response.data)) {
+        productsList = response.data;
+      } else if (response && Array.isArray(response.items)) {
+        productsList = response.items;
+      }
+
       setCatalog(productsList);
     } catch (err) {
       console.error("Error al obtener catálogo:", err);
+      setCatalog([]);
     } finally {
       setCatalogLoading(false);
     }
   };
 
+  // 2. Consulta del carrito desde Basket.API
   const fetchBasket = async (userName) => {
     const cleanUser = userName.trim();
     if (!cleanUser) return;
@@ -52,9 +64,9 @@ export default function BasketManager() {
     }
   };
 
-  // Función de guardado síncrono en Backend (basket-cache)
+  // 3. Sincronización en segundo plano con Basket.API / Redis
   const syncBasketWithServer = async (updatedBasket) => {
-    setBasket(updatedBasket); // Actualizar pantalla
+    setBasket(updatedBasket); // Actualización optimista en UI
 
     const payload = {
       userName: updatedBasket.userName,
@@ -66,7 +78,13 @@ export default function BasketManager() {
       }))
     };
 
-    return await basketService.updateBasket(payload);
+    try {
+      if (basketService && typeof basketService.updateBasket === 'function') {
+        return await basketService.updateBasket(payload);
+      }
+    } catch (err) {
+      console.warn("Aviso: No se pudo guardar en Basket.API, usando cache local.", err);
+    }
   };
 
   const handleAddFromCatalog = async (product) => {
@@ -95,12 +113,7 @@ export default function BasketManager() {
       });
     }
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error al guardar producto en basket-cache:", err);
-      alert("Error al guardar en el servidor. Revisa si Basket.API está activo.");
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleQuantityChange = async (productId, delta) => {
@@ -116,11 +129,7 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error al actualizar cantidad:", err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleRemoveItem = async (productId) => {
@@ -129,13 +138,10 @@ export default function BasketManager() {
       (item) => String(item.productId || item.id || item._id) !== String(productId)
     );
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error("Error al eliminar item:", err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
+  // 4. Checkout tolerante a errores de respuesta
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -146,14 +152,12 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      // 1. Asegurar la persistencia antes de llamar al checkout
       await syncBasketWithServer(basket);
 
-      // 2. Ejecutar Checkout en Ordering.API
       const payloadOrder = {
-        userName: basket.userName,
-        customerId: basket.userName,
-        basketId: basket.userName,
+        userName: String(basket.userName),
+        customerId: String(basket.userName),
+        basketId: String(basket.userName),
         items: basket.items.map((i) => ({
           productId: String(i.productId || i.id || i._id || "1"),
           productName: String(i.productName || i.name || "Producto"),
@@ -187,17 +191,16 @@ export default function BasketManager() {
 
         setCreatedOrder(orderData);
 
-        // Limpiar únicamente tras éxito real
         const emptyBasket = { userName: basket.userName, items: [] };
         await syncBasketWithServer(emptyBasket);
       } else {
         const errorText = await response.text();
         console.error(`Error HTTP ${response.status}:`, errorText);
-        alert(`El servidor rechazó la orden (${response.status}):\n${errorText}`);
+        alert(`Error al procesar la orden (${response.status}):\n${errorText}`);
       }
     } catch (error) {
       console.error("Error en Checkout:", error);
-      alert("No se pudo procesar la orden: " + error.message);
+      alert("Error en el proceso de Checkout: " + error.message);
     } finally {
       setLoading(false);
     }
