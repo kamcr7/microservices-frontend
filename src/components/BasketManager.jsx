@@ -159,17 +159,25 @@ export default function BasketManager() {
       const activeUserName = basket.userName || searchUser || 'Saul';
       const total = calculateTotal();
 
-      const result = await checkoutService.checkout(activeUserName, basket.items, total);
+      // Formatear items asegurando que price / unitPrice contengan el valor
+      const itemsToCheckout = basket.items.map(item => ({
+        ...item,
+        price: Number(item.price || item.unitPrice || 0),
+        unitPrice: Number(item.price || item.unitPrice || 0)
+      }));
+
+      const result = await checkoutService.checkout(activeUserName, itemsToCheckout, total);
       
       // Guardar el resultado para mostrar la tarjeta de confirmación en UI
       setCreatedOrder(result);
       
-      // Vaciar carrito tras checkout exitoso
+      // Vaciar carrito local tras checkout exitoso
       setBasket({ userName: activeUserName, items: [] });
 
     } catch (error) {
       console.error("Error en Checkout:", error);
-      alert("Error al procesar la orden: " + (error.response?.data?.error || error.message));
+      const serverMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+      alert("Error al procesar la orden: " + serverMsg);
     }
   };
 

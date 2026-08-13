@@ -1,26 +1,34 @@
+// services/checkoutService.js
 import axios from 'axios';
 
-const ORDERING_URL = import.meta.env.VITE_ORDERING_URL || 'https://ordering-api-n8co.onrender.com';
+const CHECKOUT_API_URL = 'https://ordering-api-nico.onrender.com/api/orders';
 
 export const checkoutService = {
-  checkout: async (userName, items = [], totalPrice) => {
-    // Asegurar que items sea un arreglo válido y no vacío
-    const safeItems = Array.isArray(items) ? items : [];
+  checkout: async (userName, items, totalAmount) => {
+    // Transformar/Mapear los items asegurando compatibilidad de campos (price y unitPrice)
+    const formattedItems = items.map((item) => {
+      const priceVal = Number(item.price || item.unitPrice || 0);
+      return {
+        productId: String(item.productId || item.id || item._id),
+        productName: String(item.productName || item.name || "Producto"),
+        price: priceVal,
+        unitPrice: priceVal,
+        quantity: Number(item.quantity || 1)
+      };
+    });
 
     const payload = {
-      customerId: String(userName || 'Saul').trim(),
-      basketId: String(userName || 'Saul').trim(),
-      items: safeItems.map(item => ({
-        productId: String(item.productId || item.id || 'prod-1'),
-        productName: String(item.productName || item.name || 'Producto'),
-        unitPrice: Number(item.price || item.unitPrice || 0),
-        quantity: Number(item.quantity || 1)
-      }))
+      customerId: userName,
+      userName: userName,
+      basketId: userName,
+      totalPrice: Number(totalAmount || 0),
+      total: Number(totalAmount || 0),
+      items: formattedItems
     };
 
-    console.log("Payload enviado a Ordering.API:", JSON.stringify(payload)); // Para depuración en consola
+    console.log("Payload enviado a Ordering.API:", JSON.stringify(payload));
 
-    const response = await axios.post(`${ORDERING_URL}/api/orders`, payload);
+    const response = await axios.post(CHECKOUT_API_URL, payload);
     return response.data;
   }
 };
