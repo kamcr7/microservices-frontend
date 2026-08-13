@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { getBasket, createOrUpdateBasket } from '../services/basketService';
-import { checkoutOrder } from '../services/orderingService';
+import { basketService } from '../services/basketService';
+import { createOrder } from '../services/orderingService';
 
 export default function BasketManager() {
   const [searchUser, setSearchUser] = useState('Saul');
@@ -13,7 +13,7 @@ export default function BasketManager() {
     setLoading(true);
     setOrderResult(null);
     try {
-      const data = await getBasket(userName);
+      const data = await basketService.getBasketByUser(userName);
       setBasket(data);
     } catch (error) {
       console.error("Error al obtener carrito:", error);
@@ -38,7 +38,7 @@ export default function BasketManager() {
     setBasket(updatedBasket);
 
     try {
-      await createOrUpdateBasket({
+      await basketService.updateBasket({
         userName: basket.userName,
         items: updatedItems.map(i => ({
           productId: i.productId,
@@ -48,7 +48,7 @@ export default function BasketManager() {
         }))
       });
     } catch (err) {
-      alert("Error al actualizar el carrito en el servidor");
+      alert("Error al actualizar el carrito");
     }
   };
 
@@ -59,7 +59,7 @@ export default function BasketManager() {
     setBasket(updatedBasket);
 
     try {
-      await createOrUpdateBasket({
+      await basketService.updateBasket({
         userName: basket.userName,
         items: updatedItems.map(i => ({
           productId: i.productId,
@@ -81,34 +81,18 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      const payload = {
-        userName: basket.userName,
-        totalPrice: calculateTotal(),
-        firstName: basket.userName,
-        lastName: "Cliente",
-        emailAddress: `${basket.userName.toLowerCase()}@eshop.com`,
-        addressLine: "Av. Principal 123",
-        country: "México",
-        state: "CDMX",
-        zipCode: "01000",
-        cardName: basket.userName,
-        cardNumber: "4532111122223333",
-        expiration: "12/28",
-        cvv: "123",
-        paymentMethod: 1,
-        items: basket.items.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          price: item.price,
-          quantity: item.quantity
-        }))
-      };
-
-      const result = await checkoutOrder(payload);
+      // Intentamos primero con la función de Ordering y de respaldo con Basket Checkout
+      let result;
+      try {
+        result = await createOrder(basket.userName, basket.userName);
+      } catch (e) {
+        result = await basketService.checkout(basket.userName);
+      }
+      
       setOrderResult(result);
       setBasket({ ...basket, items: [] });
     } catch (error) {
-      alert(`Error (${error.status || 400}): ${error.data?.error || "No se pudo procesar la orden."}`);
+      alert(`Error al procesar la orden: ${error.message || "Inténtalo de nuevo."}`);
     } finally {
       setLoading(false);
     }
@@ -144,8 +128,7 @@ export default function BasketManager() {
       {orderResult && (
         <div className="bg-green-100 border border-green-400 text-green-800 p-4 rounded-lg mb-6">
           <h3 className="font-bold text-lg">🎉 ¡Orden Creada con Éxito!</h3>
-          <p><strong>ID Orden:</strong> {orderResult.id || orderResult.orderId || "Generado"}</p>
-          <p><strong>Total:</strong> ${orderResult.totalPrice || calculateTotal()}</p>
+          <p><strong>Detalles:</strong> Orden procesada correctamente para {searchUser}.</p>
         </div>
       )}
 
