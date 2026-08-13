@@ -1,20 +1,25 @@
 import axios from 'axios';
 
-const RAW_BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com'; // Coloca aquí tu URL de Render de Basket
+const RAW_BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com';
 const BASE_BASKET_URL = RAW_BASKET_URL.replace(/\/$/, '');
 
 export const basketService = {
-  getBasket: async (userName) => {
+  // Mantener el nombre que consume tu componente React
+  getBasketByUser: async (userName) => {
     try {
-      // Petición a /basket/{userName}
       const response = await axios.get(`${BASE_BASKET_URL}/basket/${userName}`);
       const data = response.data;
 
-      // Retornar el objeto del carrito o la lista de items mapeada
+      // Retorna el objeto del carrito o la estructura por defecto si no existe
       return data?.basket || data || { userName, items: [] };
     } catch (error) {
       console.error(`Error al obtener el carrito de ${userName}:`, error);
       return { userName, items: [] };
     }
+  },
+
+  // Alias por si lo utilizas en otro lugar con otro nombre
+  getBasket: async (userName) => {
+    return basketService.getBasketByUser(userName);
   }
 };
