@@ -15,31 +15,23 @@ export default function BasketManager() {
     fetchBasket(searchUser);
   }, []);
 
-  // 1. Carga del catálogo
   const loadCatalog = async () => {
     try {
       setCatalogLoading(true);
       const response = await catalogService.getProducts();
-      
       let productsList = [];
-      if (Array.isArray(response)) {
-        productsList = response;
-      } else if (response && Array.isArray(response.data)) {
-        productsList = response.data;
-      } else if (response && Array.isArray(response.items)) {
-        productsList = response.items;
-      }
-
+      if (Array.isArray(response)) productsList = response;
+      else if (response?.data && Array.isArray(response.data)) productsList = response.data;
+      else if (response?.items && Array.isArray(response.items)) productsList = response.items;
       setCatalog(productsList);
     } catch (err) {
-      console.error("Error al obtener catálogo:", err);
+      console.error("Error catálogo:", err);
       setCatalog([]);
     } finally {
       setCatalogLoading(false);
     }
   };
 
-  // 2. Consulta del carrito desde Basket.API
   const fetchBasket = async (userName) => {
     const cleanUser = userName.trim();
     if (!cleanUser) return;
@@ -64,7 +56,7 @@ export default function BasketManager() {
     }
   };
 
-  // 3. Sincronización limpia con formato compatible de C# / .NET
+  // Obligar a guardar en Basket.API y verificar si respondió bien
   const syncBasketWithServer = async (updatedBasket) => {
     setBasket(updatedBasket);
 
@@ -80,13 +72,7 @@ export default function BasketManager() {
       }))
     };
 
-    try {
-      if (basketService && typeof basketService.updateBasket === 'function') {
-        return await basketService.updateBasket(payload);
-      }
-    } catch (err) {
-      console.warn("Aviso: Basket.API devolvió error al guardar, continuando localmente:", err);
-    }
+    return await basketService.updateBasket(payload);
   };
 
   const handleAddFromCatalog = async (product) => {
@@ -115,7 +101,11 @@ export default function BasketManager() {
       });
     }
 
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      alert("Error al guardar en Basket.API: " + (err.response?.data?.message || err.message));
+    }
   };
 
   const handleQuantityChange = async (productId, delta) => {
@@ -131,7 +121,11 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleRemoveItem = async (productId) => {
@@ -140,10 +134,13 @@ export default function BasketManager() {
       (item) => String(item.productId || item.id || item._id) !== String(productId)
     );
 
-    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    try {
+      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  // 4. Checkout tolerante
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -154,14 +151,21 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      // Intentamos sincronizar con Basket.API sin detener la compra si responde 500
-      await syncBasketWithServer(basket);
+      // 1. FORZAR GUARDADO PRIMERO
+      try {
+        await syncBasketWithServer(basket);
+      } catch (saveError) {
+        alert("Atención: No se pudo guardar el carrito en Basket.API antes de la compra.");
+        setLoading(false);
+        return;
+      }
 
-      // Payload completo para Ordering.API
+      // 2. ENVIAR A ORDERING.API
+      const user = String(basket.userName).trim();
       const payloadOrder = {
-        userName: String(basket.userName).trim(),
-        customerId: String(basket.userName).trim(),
-        basketId: String(basket.userName).trim(),
+        userName: user,
+        customerId: user,
+        basketId: user,
         totalPrice: Number(calculateTotal()),
         total: Number(calculateTotal()),
         items: basket.items.map((i) => ({
@@ -175,9 +179,7 @@ export default function BasketManager() {
 
       const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payloadOrder)
       });
 
@@ -196,17 +198,15 @@ export default function BasketManager() {
 
         setCreatedOrder(orderData);
 
-        // Vaciar el carrito en pantalla y servidor
+        // Vaciar
         const emptyBasket = { userName: basket.userName, items: [] };
         await syncBasketWithServer(emptyBasket);
       } else {
         const errorText = await response.text();
-        console.error(`Error HTTP ${response.status}:`, errorText);
         alert(`Ordering API rechazo la orden (${response.status}):\n${errorText}`);
       }
     } catch (error) {
-      console.error("Error en Checkout:", error);
-      alert("Error en el Checkout: " + error.message);
+      alert("Error en Checkout: " + error.message);
     } finally {
       setLoading(false);
     }
@@ -255,7 +255,7 @@ export default function BasketManager() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           
-          {/* Columna Izquierda: Productos del Catálogo */}
+          {/* Catalogo */}
           <div className="border rounded-lg p-4 bg-gray-50">
             <h3 className="font-bold text-gray-700 mb-3 flex items-center gap-2">
               📦 Productos del Catálogo
@@ -288,7 +288,7 @@ export default function BasketManager() {
             )}
           </div>
 
-          {/* Columna Derecha: Carrito Activo */}
+          {/* Carrito */}
           <div className="border rounded-lg p-4 bg-gray-50 flex flex-col justify-between">
             <div>
               <h3 className="font-bold text-blue-700 border-b pb-2 mb-3">
