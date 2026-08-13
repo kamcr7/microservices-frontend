@@ -234,3 +234,4 @@ export const BasketManager = () => {
     </div>
   );
 };
+export default BasketManager;
