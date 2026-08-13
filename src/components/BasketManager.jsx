@@ -5,245 +5,158 @@ export default function BasketManager() {
   const [searchUser, setSearchUser] = useState('Saul');
   const [basket, setBasket] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
+  
+  // Estados para el nuevo formulario de agregar producto
+  const [newProduct, setNewProduct] = useState({ productId: '', productName: '', price: '', quantity: 1 });
 
-  const handleSearch = async (e) => {
-    if (e) e.preventDefault();
-    const cleanUser = searchUser.trim();
+  const fetchBasket = async (userName) => {
+    const cleanUser = userName.trim();
     if (!cleanUser) return;
-
+    setLoading(true);
+    setCreatedOrder(null);
     try {
-      setLoading(true);
-      setSearched(true);
-      setCreatedOrder(null);
-
       const response = await basketService.getBasketByUser(cleanUser);
-      console.log("Datos del carrito obtenidos:", response);
-
-      // Mapeo flexible para soportar si viene dentro de .cart o directo
       const cartData = response?.cart || response;
-
-      if (cartData && Array.isArray(cartData.items) && cartData.items.length > 0) {
-        setBasket({
-          userName: cartData.userName || cleanUser,
-          items: cartData.items
-        });
-      } else {
-        setBasket(null);
-      }
+      setBasket({
+        userName: cartData.userName || cleanUser,
+        items: cartData.items || []
+      });
     } catch (error) {
-      console.error("Error al buscar el carrito:", error);
-      setBasket(null);
+      console.error("Error al buscar:", error);
+      setBasket({ userName: cleanUser, items: [] }); // Inicializa vacío si no existe
     } finally {
       setLoading(false);
     }
   };
 
-  // Carga inicial automática
-  useEffect(() => {
-    handleSearch();
-  }, []);
-
-  // Modificar cantidad (+ / -) y guardar en servidor
-  const handleQuantityChange = async (productId, delta) => {
-    if (!basket) return;
-
-    const updatedItems = basket.items
-      .map((item) => {
-        if (item.productId === productId) {
-          const newQty = item.quantity + delta;
-          return newQty > 0 ? { ...item, quantity: newQty } : null;
-        }
-        return item;
-      })
-      .filter(Boolean);
-
-    setBasket({ ...basket, items: updatedItems });
-
+  const updateBasketInServer = async (currentBasket) => {
     try {
-      await basketService.updateBasket({
-        userName: basket.userName,
-        items: updatedItems
-      });
+      await basketService.updateBasket(currentBasket);
+      setBasket(currentBasket);
     } catch (err) {
-      console.error("Error al actualizar carrito:", err);
+      alert("Error guardando carrito en servidor: " + err.message);
     }
   };
 
-  // Eliminar producto por completo y guardar en servidor
-  const handleRemoveItem = async (productId) => {
-    if (!basket) return;
-
-    const updatedItems = basket.items.filter((item) => item.productId !== productId);
-    setBasket({ ...basket, items: updatedItems });
-
-    try {
-      await basketService.updateBasket({
-        userName: basket.userName,
-        items: updatedItems
-      });
-    } catch (err) {
-      console.error("Error al eliminar producto:", err);
+  const handleAddProduct = () => {
+    if (!newProduct.productId || !newProduct.productName || !newProduct.price) {
+      alert("Por favor llena los datos del producto");
+      return;
     }
+    
+    const productToAdd = {
+      productId: newProduct.productId,
+      productName: newProduct.productName,
+      price: parseFloat(newProduct.price),
+      quantity: parseInt(newProduct.quantity)
+    };
+
+    const currentItems = basket ? basket.items : [];
+    const updatedItems = [...currentItems, productToAdd];
+    
+    updateBasketInServer({ userName: basket.userName, items: updatedItems });
+    setNewProduct({ productId: '', productName: '', price: '', quantity: 1 });
   };
 
-  // Finalizar compra (Checkout)
+  const handleQuantityChange = (productId, delta) => {
+    const updatedItems = basket.items.map(item => 
+      item.productId === productId ? { ...item, quantity: Math.max(1, item.quantity + delta) } : item
+    );
+    updateBasketInServer({ userName: basket.userName, items: updatedItems });
+  };
+
+  const handleRemoveItem = (productId) => {
+    const updatedItems = basket.items.filter(item => item.productId !== productId);
+    updateBasketInServer({ userName: basket.userName, items: updatedItems });
+  };
+
   const handleCheckout = async () => {
-    if (!basket || !basket.userName) return;
-    if (!window.confirm(`¿Proceder a generar la orden para el usuario ${basket.userName}?`)) return;
-
+    if (!basket || basket.items.length === 0) return alert("Carrito vacío");
+    
+    setLoading(true);
     try {
-      setLoading(true);
-      const idempotencyKey = crypto.randomUUID();
+      const payload = {
+        customerId: basket.userName,
+        basketId: basket.userName,
+        items: basket.items.map(i => ({
+          productId: i.productId,
+          productName: i.productName,
+          unitPrice: i.price,
+          quantity: i.quantity
+        }))
+      };
+
+      console.log("Enviando orden:", payload); // Debug para ver qué se envía
 
       const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey
-        },
-        body: JSON.stringify({
-          customerId: basket.userName,
-          basketId: basket.userName,
-          items: basket.items.map((item) => ({
-            productId: item.productId || 'prod-1',
-            productName: item.productName,
-            unitPrice: item.price || item.unitPrice,
-            quantity: item.quantity
-          }))
-        })
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify(payload)
       });
 
-      if (response.ok || response.status === 201) {
-        const orderData = await response.json();
-        setCreatedOrder(orderData);
-        setBasket(null);
-        setSearched(false);
-      } else {
-        const errorText = await response.text();
-        alert(`Error (${response.status}): ${errorText || 'No se pudo procesar la orden.'}`);
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(errText || "Error en el servidor de órdenes");
       }
+
+      const orderData = await response.json();
+      setCreatedOrder(orderData);
+      setBasket({ ...basket, items: [] }); // Limpiar carrito
+      await updateBasketInServer({ userName: basket.userName, items: [] });
     } catch (error) {
-      console.error("Error en checkout:", error);
-      alert("Error de conexión con el Microservicio de Órdenes.");
+      console.error("Checkout failed:", error);
+      alert("Error en Checkout: " + error.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-3xl mx-auto bg-white p-6 rounded-lg shadow border mt-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">🔍 Buscar / Editar Carrito</h2>
+    <div className="max-w-3xl mx-auto p-6 bg-white shadow-lg rounded-xl border mt-6">
+      <h2 className="text-2xl font-bold mb-4">🛒 Gestión de Carrito</h2>
+      
+      {/* Buscador */}
+      <div className="flex gap-2 mb-6">
+        <input className="border p-2 rounded flex-1" value={searchUser} onChange={(e) => setSearchUser(e.target.value)} />
+        <button onClick={() => fetchBasket(searchUser)} className="bg-blue-600 text-white px-4 py-2 rounded">Consultar</button>
+      </div>
 
-      <form onSubmit={handleSearch} className="flex gap-4 items-center mb-6 bg-gray-50 p-4 rounded-lg border">
-        <label className="text-gray-700 font-semibold whitespace-nowrap">Usuario Activo:</label>
-        <input
-          type="text"
-          placeholder="Ej: Saul, Mark..."
-          value={searchUser}
-          onChange={(e) => setSearchUser(e.target.value)}
-          className="flex-1 border p-2 rounded shadow-sm focus:outline-blue-500"
-          required
-        />
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-6 py-2 rounded font-semibold hover:bg-blue-700 transition"
-        >
-          Consultar / Cambiar
-        </button>
-      </form>
-
-      {/* Pantalla de Confirmación de la Orden */}
-      {createdOrder && (
-        <div className="mb-6 bg-green-50 border border-green-300 p-5 rounded-lg text-green-900">
-          <h3 className="text-xl font-bold text-green-800 mb-2">🎉 ¡Orden Generada Exitosamente!</h3>
-          <p><strong>ID de Orden:</strong> {createdOrder.id}</p>
-          <p><strong>Cliente:</strong> {createdOrder.customerId}</p>
-          <p>
-            <strong>Estado:</strong>{' '}
-            <span className="bg-green-200 px-2 py-0.5 rounded text-xs font-bold">
-              {createdOrder.status || 'Pending'}
-            </span>
-          </p>
-          <p>
-            <strong>Fecha:</strong>{' '}
-            {createdOrder.createdAt ? new Date(createdOrder.createdAt).toLocaleString() : new Date().toLocaleString()}
-          </p>
-          <p className="text-lg font-bold mt-2">
-            Total Pagado: ${createdOrder.total ? createdOrder.total.toFixed(2) : '0.00'}
-          </p>
-        </div>
-      )}
-
-      {loading ? (
-        <p className="text-center py-6 text-gray-500">Procesando solicitud...</p>
-      ) : basket ? (
-        <div className="border rounded-lg overflow-hidden shadow-sm">
-          <div className="bg-blue-600 text-white px-4 py-3 font-bold flex justify-between items-center">
-            <span>🛒 Carrito Activo: {basket.userName}</span>
+      {basket && (
+        <>
+          {/* Formulario Agregar Producto */}
+          <div className="bg-gray-100 p-4 rounded-lg mb-6 border">
+            <h3 className="font-bold mb-2">➕ Agregar Producto Manualmente</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <input placeholder="ID" className="border p-1" value={newProduct.productId} onChange={e => setNewProduct({...newProduct, productId: e.target.value})} />
+              <input placeholder="Nombre" className="border p-1" value={newProduct.productName} onChange={e => setNewProduct({...newProduct, productName: e.target.value})} />
+              <input placeholder="Precio" type="number" className="border p-1" value={newProduct.price} onChange={e => setNewProduct({...newProduct, price: e.target.value})} />
+              <button onClick={handleAddProduct} className="bg-green-600 text-white font-bold rounded">Agregar</button>
+            </div>
           </div>
-          <div className="p-4 space-y-3">
-            {basket.items.map((item, idx) => (
-              <div key={item.productId || idx} className="flex justify-between items-center border-b pb-2 text-sm">
-                <div>
-                  <p className="font-semibold text-gray-800">{item.productName}</p>
-                  <p className="text-gray-500">Precio: ${ (item.price || item.unitPrice)?.toFixed(2) }</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* Botones de incremento y decremento */}
-                  <div className="flex items-center border rounded overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => handleQuantityChange(item.productId, -1)}
-                      className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="px-3 font-semibold">{item.quantity}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleQuantityChange(item.productId, 1)}
-                      className="px-2 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
 
-                  {/* Botón para eliminar item */}
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveItem(item.productId)}
-                    className="text-red-500 hover:text-red-700 font-bold px-2 py-1 text-lg"
-                    title="Eliminar producto"
-                  >
-                    ✕
-                  </button>
+          {/* Lista de Items */}
+          <div className="space-y-2">
+            {basket.items.map(item => (
+              <div key={item.productId} className="flex justify-between items-center p-2 border-b">
+                <span>{item.productName} (${item.price}) x {item.quantity}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => handleQuantityChange(item.productId, 1)} className="px-2 bg-gray-200">+</button>
+                  <button onClick={() => handleQuantityChange(item.productId, -1)} className="px-2 bg-gray-200">-</button>
+                  <button onClick={() => handleRemoveItem(item.productId)} className="text-red-500">✕</button>
                 </div>
               </div>
             ))}
-
-            <div className="flex justify-between items-center pt-4 font-bold text-lg">
-              <span className="text-gray-700">Total Acumulado:</span>
-              <span className="text-green-600">
-                ${basket.items.reduce((acc, i) => acc + ((i.price || i.unitPrice || 0) * i.quantity), 0).toFixed(2)}
-              </span>
-            </div>
-
-            <button
-              onClick={handleCheckout}
-              className="w-full bg-green-600 text-white font-bold py-2 mt-4 rounded hover:bg-green-700 transition shadow"
-            >
-              🏁 Finalizar Compra (Checkout)
-            </button>
           </div>
-        </div>
-      ) : (
-        searched && !createdOrder && (
-          <p className="text-center py-6 text-gray-400 text-sm border-2 border-dashed rounded-lg">
-            El carrito de <strong className="text-gray-600">{searchUser}</strong> está vacío o no existe.
-          </p>
-        )
+
+          <button onClick={handleCheckout} className="w-full mt-6 bg-blue-700 text-white py-3 rounded font-bold">
+            {loading ? "Procesando..." : "Finalizar Compra"}
+          </button>
+        </>
+      )}
+
+      {createdOrder && (
+        <div className="mt-4 p-4 bg-green-100 text-green-800 rounded">✅ Orden creada: {createdOrder.id}</div>
       )}
     </div>
   );
