@@ -8,9 +8,10 @@ export const basketService = {
     return res.data;
   },
 
-  updateBasket: async (basketPayload) => {
-    // Es vital que se haga la petición POST/PUT a Basket.API para persistir en Redis
-    const res = await axios.post(`${BASKET_URL}/basket`, basketPayload);
+  updateBasket: async (basketData) => {
+    // Si ya viene formateado con { cart: ... } lo usa, si no, lo envuelve automáticamente
+    const payload = basketData.cart ? basketData : { cart: basketData };
+    const res = await axios.post(`${BASKET_URL}/basket`, payload);
     return res.data;
   }
 };
