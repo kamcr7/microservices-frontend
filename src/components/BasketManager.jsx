@@ -140,25 +140,31 @@ const handleCheckout = async () => {
 
     setLoading(true);
     try {
-      // 1. Sincronizar primero los datos en Basket.API -> basket-cache
-      const payloadBasket = {
-        userName: basket.userName,
-        items: basket.items.map((i) => ({
-          productId: String(i.productId || i.id || i._id || "1"),
-          productName: String(i.productName || i.name || "Producto"),
-          price: Number(i.price || i.unitPrice || 0),
-          quantity: Number(i.quantity || 1)
-        }))
-      };
+      // 1. Mapear items con estructura limpia
+      const formattedItems = basket.items.map((i) => ({
+        productId: String(i.productId || i.id || i._id || "1"),
+        productName: String(i.productName || i.name || "Producto"),
+        price: Number(i.price || i.unitPrice || 0),
+        unitPrice: Number(i.price || i.unitPrice || 0),
+        quantity: Number(i.quantity || 1)
+      }));
 
-      await basketService.updateBasket(payloadBasket);
+      // 2. Intentar asegurar la persistencia en Basket API
+      try {
+        await basketService.updateBasket({
+          userName: basket.userName,
+          items: formattedItems
+        });
+      } catch (errBasket) {
+        console.warn("Aviso al guardar basket previo:", errBasket.message);
+      }
 
-      // 2. Ejecutar la llamada de checkout a Ordering.API
+      // 3. Crear payload y consumir Ordering API directamente
       const payloadOrder = {
         userName: basket.userName,
         customerId: basket.userName,
         basketId: basket.userName,
-        items: payloadBasket.items,
+        items: formattedItems,
         total: Number(calculateTotal())
       };
 
@@ -184,19 +190,23 @@ const handleCheckout = async () => {
         }
 
         setCreatedOrder(orderData);
-        
-        // 3. Limpiar carrito tras la orden
+
+        // SOLO si la orden fue exitosa, limpiamos el carrito
         const emptyBasket = { userName: basket.userName, items: [] };
         setBasket(emptyBasket);
-        await basketService.updateBasket(emptyBasket);
+        try {
+          await basketService.updateBasket(emptyBasket);
+        } catch (e) {
+          console.warn("Error limpiando backend:", e);
+        }
       } else {
         const errorText = await response.text();
         console.error(`Error HTTP ${response.status}:`, errorText);
-        alert(`Error al procesar la orden (Status ${response.status}):\n${errorText}`);
+        alert(`El servidor rechazó la orden (${response.status}):\n${errorText}`);
       }
     } catch (error) {
       console.error("Error en Checkout:", error);
-      alert("Error en el proceso de Checkout: " + error.message);
+      alert("No se pudo procesar la orden: " + error.message);
     } finally {
       setLoading(false);
     }
