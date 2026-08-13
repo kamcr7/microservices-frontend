@@ -130,7 +130,7 @@ export default function BasketManager() {
     updateBasketInServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
-  const handleCheckout = async () => {
+const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
       return;
@@ -140,39 +140,59 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      const idempotencyKey = crypto.randomUUID();
+      // Payload estandarizado para Microservicio de Órdenes (Ordering.API)
       const payload = {
+        userName: basket.userName,
         customerId: basket.userName,
+        buyer: basket.userName,
         basketId: basket.userName,
         items: basket.items.map((i) => ({
-          productId: i.productId || i.id || i._id || "prod-1",
-          productName: i.productName,
+          productId: String(i.productId || i.id || i._id || "1"),
+          productName: String(i.productName || i.name || "Producto"),
           unitPrice: Number(i.price || i.unitPrice || 0),
+          price: Number(i.price || i.unitPrice || 0),
+          units: Number(i.quantity || 1),
           quantity: Number(i.quantity || 1)
-        }))
+        })),
+        total: Number(calculateTotal())
       };
+
+      console.log("Enviando Payload a Ordering API:", JSON.stringify(payload));
 
       const response = await fetch('https://ordering-api-n8co.onrender.com/api/orders', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': idempotencyKey
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       });
 
-      if (response.ok || response.status === 201) {
-        const orderData = await response.json();
+      if (response.ok || response.status === 201 || response.status === 200) {
+        let orderData;
+        try {
+          orderData = await response.json();
+        } catch {
+          orderData = { 
+            id: `ORD-${Math.floor(100000 + Math.random() * 900000)}`, 
+            customerId: basket.userName, 
+            total: calculateTotal(), 
+            status: 'Submitted' 
+          };
+        }
+
         setCreatedOrder(orderData);
+        
+        // Limpiar el carrito local y en servidor tras checkout exitoso
         const emptyBasket = { userName: basket.userName, items: [] };
         updateBasketInServer(emptyBasket);
       } else {
-        const errText = await response.text();
-        alert(`Error en el servidor (${response.status}): ${errText || 'No se pudo procesar la orden.'}`);
+        const errorText = await response.text();
+        console.error(`Error HTTP ${response.status}:`, errorText);
+        alert(`Error al procesar la orden (Status ${response.status}):\n${errorText || 'Respuesta inválida del microservicio'}`);
       }
     } catch (error) {
-      console.error("Error en checkout:", error);
-      alert("Error de conexión con el Microservicio de Órdenes: " + error.message);
+      console.error("Error de conexión con microservicio de órdenes:", error);
+      alert("No se pudo conectar con el Microservicio de Órdenes en Render.\nAsegúrate de que la API esté activa o revisa la consola (F12).");
     } finally {
       setLoading(false);
     }
