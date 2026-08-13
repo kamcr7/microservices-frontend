@@ -1,25 +1,16 @@
 import axios from 'axios';
 
-// Asegurarse de apuntar al backend del CARRITO y no al del catálogo
-const RAW_BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com';
-const BASE_BASKET_URL = RAW_BASKET_URL.replace(/\/$/, '');
+const BASKET_URL = import.meta.env.VITE_BASKET_URL || 'https://basket-api-cma3.onrender.com';
 
 export const basketService = {
   getBasketByUser: async (userName) => {
-    try {
-      // Petición hacia basket-api-cma3.onrender.com/basket/Saul
-      const response = await axios.get(`${BASE_BASKET_URL}/basket/${userName}`);
-      const data = response.data;
-
-      // Adaptar según la estructura de respuesta que devuelve Basket.API
-      return data?.basket || data || { userName, items: [] };
-    } catch (error) {
-      console.error(`Error al obtener el carrito de ${userName}:`, error);
-      return { userName, items: [] };
-    }
+    const res = await axios.get(`${BASKET_URL}/basket/${userName}`);
+    return res.data;
   },
 
-  getBasket: async (userName) => {
-    return basketService.getBasketByUser(userName);
+  updateBasket: async (basketPayload) => {
+    // Es vital que se haga la petición POST/PUT a Basket.API para persistir en Redis
+    const res = await axios.post(`${BASKET_URL}/basket`, basketPayload);
+    return res.data;
   }
 };
