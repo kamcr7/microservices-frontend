@@ -49,14 +49,14 @@ export default function BasketManager() {
         setBasket({ userName: cleanUser, items: [] });
       }
     } catch (error) {
-      console.error("Error al buscar el carrito:", error);
+      console.warn("No se pudo cargar carrito de Basket.API, usando local:", error);
       setBasket({ userName: cleanUser, items: [] });
     } finally {
       setLoading(false);
     }
   };
 
-  // Obligar a guardar en Basket.API y verificar si respondió bien
+  // Intento de sincronización resiliente con Basket.API
   const syncBasketWithServer = async (updatedBasket) => {
     setBasket(updatedBasket);
 
@@ -72,7 +72,13 @@ export default function BasketManager() {
       }))
     };
 
-    return await basketService.updateBasket(payload);
+    try {
+      if (basketService && typeof basketService.updateBasket === 'function') {
+        return await basketService.updateBasket(payload);
+      }
+    } catch (err) {
+      console.warn("Aviso: Basket.API no guardó en Redis/BD, manteniendo en estado local:", err);
+    }
   };
 
   const handleAddFromCatalog = async (product) => {
@@ -101,11 +107,7 @@ export default function BasketManager() {
       });
     }
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      alert("Error al guardar en Basket.API: " + (err.response?.data?.message || err.message));
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleQuantityChange = async (productId, delta) => {
@@ -121,11 +123,7 @@ export default function BasketManager() {
       })
       .filter(Boolean);
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error(err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
   const handleRemoveItem = async (productId) => {
@@ -134,13 +132,10 @@ export default function BasketManager() {
       (item) => String(item.productId || item.id || item._id) !== String(productId)
     );
 
-    try {
-      await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
-    } catch (err) {
-      console.error(err);
-    }
+    await syncBasketWithServer({ userName: basket.userName || searchUser, items: updatedItems });
   };
 
+  // Checkout directo que no se interrumpe si Basket.API está inaccesible
   const handleCheckout = async () => {
     if (!basket || !basket.items || basket.items.length === 0) {
       alert("El carrito está vacío.");
@@ -151,16 +146,10 @@ export default function BasketManager() {
 
     setLoading(true);
     try {
-      // 1. FORZAR GUARDADO PRIMERO
-      try {
-        await syncBasketWithServer(basket);
-      } catch (saveError) {
-        alert("Atención: No se pudo guardar el carrito en Basket.API antes de la compra.");
-        setLoading(false);
-        return;
-      }
+      // 1. Intentar respaldar en Basket.API sin bloquear
+      await syncBasketWithServer(basket);
 
-      // 2. ENVIAR A ORDERING.API
+      // 2. Construir la orden directamente para Ordering.API
       const user = String(basket.userName).trim();
       const payloadOrder = {
         userName: user,
@@ -198,12 +187,12 @@ export default function BasketManager() {
 
         setCreatedOrder(orderData);
 
-        // Vaciar
+        // Vaciar carrito
         const emptyBasket = { userName: basket.userName, items: [] };
         await syncBasketWithServer(emptyBasket);
       } else {
         const errorText = await response.text();
-        alert(`Ordering API rechazo la orden (${response.status}):\n${errorText}`);
+        alert(`Ordering API rechazó la orden (${response.status}):\n${errorText}`);
       }
     } catch (error) {
       alert("Error en Checkout: " + error.message);
