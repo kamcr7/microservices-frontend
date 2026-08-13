@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Endpoint expuesto por Carter en tu Catalog.API
+// Agregamos /products al final de la URL de Render
 const BASE_URL = import.meta.env.VITE_CATALOG_URL || 'https://catalog-api-32it.onrender.com/products';
 
 export const catalogService = {
@@ -9,7 +9,7 @@ export const catalogService = {
       const response = await axios.get(BASE_URL);
       const data = response.data;
 
-      // Retorna el array según la estructura recibida de Carter/Marten
+      // Adaptación para extraer la lista según el formato devuelto por Carter/Marten
       if (Array.isArray(data)) return data;
       if (Array.isArray(data?.products)) return data.products;
       if (Array.isArray(data?.items)) return data.items;
