@@ -1,62 +1,72 @@
 import React, { useState, useEffect } from 'react';
 import { basketService } from '../services/basketService';
-import { catalogService } from '../services/catalogService';
 import { checkoutService } from '../services/checkoutService';
 import { OrderReceipt } from './OrderReceipt';
 import { OrdersList } from './OrdersList';
 
-const INITIAL_PRODUCTS = [
-  { id: '1', name: 'Casco AGV', price: 7999.99, imageUrl: '' },
-  { id: '2', name: 'Iphone 17 pro max', price: 25000.00, imageUrl: '' },
-  { id: '3', name: 'xbox series x', price: 12000.00, imageUrl: '' }
+// Catálogo base inicial con sus imágenes reales incorporadas
+const DEFAULT_PRODUCTS = [
+  { 
+    id: '1', 
+    name: 'Casco AGV', 
+    price: 7999.99, 
+    imageUrl: 'https://m.media-amazon.com/images/I/71R2c3I-3BL._AC_SL1500_.jpg' 
+  },
+  { 
+    id: '2', 
+    name: 'Iphone 17 pro max', 
+    price: 25000.00, 
+    imageUrl: 'https://m.media-amazon.com/images/I/61bK6PMOC3L._AC_SL1500_.jpg' 
+  },
+  { 
+    id: '3', 
+    name: 'xbox series x', 
+    price: 12000.00, 
+    imageUrl: 'https://m.media-amazon.com/images/I/61-23W48NKL._SL1500_.jpg' 
+  }
 ];
 
 export default function BasketManager({ currentUser }) {
   const isAdmin = currentUser?.role === 'admin';
   const activeUser = currentUser?.username || 'Saul';
 
-  // Estados de catálogo y carrito
+  // --- ESTADOS ---
   const [products, setProducts] = useState([]);
   const [basket, setBasket] = useState({ userName: activeUser, items: [] });
   const [createdOrder, setCreatedOrder] = useState(null);
   const [activeTab, setActiveTab] = useState('shop');
   const [loading, setLoading] = useState(false);
 
-  // Estados de Formulario de Admin (Agregar y Editar)
+  // Formulario Admin
   const [productForm, setProductForm] = useState({ name: '', price: '', imageUrl: '' });
-  const [editingId, setEditingId] = useState(null); // ID del producto en edición (null si es nuevo)
+  const [editingId, setEditingId] = useState(null);
 
+  // --- CARGA INICIAL ---
   useEffect(() => {
-    loadProducts();
+    loadGlobalCatalog();
     loadBasket(activeUser);
   }, [activeUser]);
 
-  // Cargar catálogo (Combina API + localStorage)
-  const loadProducts = async () => {
-    let baseProducts = INITIAL_PRODUCTS;
-    
-    // 1. Intentar cargar desde localStorage
-    const stored = localStorage.getItem('catalog_products');
-    if (stored) {
-      try { baseProducts = JSON.parse(stored); } catch(e) {}
-    }
-
-    // 2. Intentar cargar desde backend
-    try {
-      const data = await catalogService.getProducts();
-      if (Array.isArray(data) && data.length > 0) {
-        baseProducts = data;
+  // Cargar catálogo garantizando persistencia sincronizada
+  const loadGlobalCatalog = () => {
+    const savedCatalog = localStorage.getItem('global_catalog_v2');
+    if (savedCatalog) {
+      try {
+        setProducts(JSON.parse(savedCatalog));
+        return;
+      } catch (e) {
+        console.error("Error al leer el catálogo almacenado", e);
       }
-    } catch (err) {
-      console.warn("Usando catálogo persistido en cliente.");
     }
-
-    setProducts(baseProducts);
+    // Si no hay nada guardado aún, inicializamos con los productos base
+    setProducts(DEFAULT_PRODUCTS);
+    localStorage.setItem('global_catalog_v2', JSON.stringify(DEFAULT_PRODUCTS));
   };
 
-  const saveCatalogLocally = (updatedList) => {
-    setProducts(updatedList);
-    localStorage.setItem('catalog_products', JSON.stringify(updatedList));
+  // Función para guardar cambios en el catálogo y compartirlos con todos los roles
+  const updateGlobalCatalog = (newList) => {
+    setProducts(newList);
+    localStorage.setItem('global_catalog_v2', JSON.stringify(newList));
   };
 
   const loadBasket = async (user) => {
@@ -66,38 +76,35 @@ export default function BasketManager({ currentUser }) {
     } catch (err) {}
   };
 
-  // --- LÓGICA DE ADMINISTRADOR: AGREGAR Y EDITAR ---
-  const handleSubmitProduct = async (e) => {
+  // --- ACCIONES DE ADMIN (AGREGAR Y EDITAR) ---
+  const handleSubmitProduct = (e) => {
     e.preventDefault();
     if (!productForm.name || !productForm.price) return;
 
     if (editingId) {
-      // ✏️ MODO EDICIÓN
+      // ✏️ EDITAR
       const updatedList = products.map(p => 
         (p.id || p._id) === editingId 
           ? { ...p, name: productForm.name, price: Number(productForm.price), imageUrl: productForm.imageUrl } 
           : p
       );
-      saveCatalogLocally(updatedList);
+      updateGlobalCatalog(updatedList);
       setEditingId(null);
     } else {
-      // ➕ MODO CREACIÓN
+      // ➕ AGREGAR
       const newProd = {
-        id: Date.now().toString(),
+        id: 'PROD-' + Date.now().toString(),
         name: productForm.name,
         price: Number(productForm.price),
         imageUrl: productForm.imageUrl
       };
       const updatedList = [...products, newProd];
-      saveCatalogLocally(updatedList);
-
-      try { await catalogService.createProduct(newProd); } catch (err) {}
+      updateGlobalCatalog(updatedList);
     }
 
     setProductForm({ name: '', price: '', imageUrl: '' });
   };
 
-  // Iniciar edición de un producto
   const handleStartEdit = (prod) => {
     setEditingId(prod.id || prod._id);
     setProductForm({
@@ -107,21 +114,20 @@ export default function BasketManager({ currentUser }) {
     });
   };
 
-  // Cancelar edición
   const handleCancelEdit = () => {
     setEditingId(null);
     setProductForm({ name: '', price: '', imageUrl: '' });
   };
 
-  // 🗑️ ELIMINAR PRODUCTO
+  // 🗑️ ELIMINAR
   const handleDeleteProduct = (id) => {
-    if (window.confirm("¿Estás seguro de que deseas eliminar este producto del catálogo?")) {
+    if (window.confirm("¿Seguro que deseas eliminar este producto del catálogo?")) {
       const updatedList = products.filter(p => (p.id || p._id) !== id);
-      saveCatalogLocally(updatedList);
+      updateGlobalCatalog(updatedList);
     }
   };
 
-  // --- LÓGICA DE CLIENTE ---
+  // --- ACCIONES DE CLIENTE ---
   const handleAddToCart = async (product) => {
     const currentItems = basket.items || [];
     const prodId = product.id || product._id;
@@ -191,7 +197,7 @@ export default function BasketManager({ currentUser }) {
       {/* Pestañas de Navegación */}
       <div className="flex border-b mb-6 print:hidden">
         <button
-          onClick={() => setActiveTab('shop')}
+          onClick={() => { loadGlobalCatalog(); setActiveTab('shop'); }}
           className={`py-2 px-4 font-bold border-b-2 ${activeTab === 'shop' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
         >
           {isAdmin ? '📦 Administrar Catálogo' : '🛒 Tienda y Carrito'}
@@ -242,7 +248,7 @@ export default function BasketManager({ currentUser }) {
                     placeholder="Nombre del producto"
                     value={productForm.name}
                     onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
-                    className="w-full p-2 border rounded"
+                    className="w-full p-2 border rounded text-sm"
                     required
                   />
                   <input
@@ -251,7 +257,7 @@ export default function BasketManager({ currentUser }) {
                     placeholder="Precio"
                     value={productForm.price}
                     onChange={(e) => setProductForm({ ...productForm, price: e.target.value })}
-                    className="w-full p-2 border rounded"
+                    className="w-full p-2 border rounded text-sm"
                     required
                   />
                   <input
@@ -259,11 +265,11 @@ export default function BasketManager({ currentUser }) {
                     placeholder="URL de Imagen (Opcional)"
                     value={productForm.imageUrl}
                     onChange={(e) => setProductForm({ ...productForm, imageUrl: e.target.value })}
-                    className="w-full p-2 border rounded"
+                    className="w-full p-2 border rounded text-sm"
                   />
                   <button
                     type="submit"
-                    className={`w-full font-bold py-2 rounded text-white ${editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}
+                    className={`w-full font-bold py-2 rounded text-white text-sm ${editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-green-600 hover:bg-green-700'}`}
                   >
                     {editingId ? 'Actualizar Producto' : 'Guardar en Catálogo'}
                   </button>
@@ -271,60 +277,65 @@ export default function BasketManager({ currentUser }) {
               </form>
             )}
 
-            {/* LISTA DE PRODUCTOS */}
+            {/* LISTA DE PRODUCTOS DEL CATÁLOGO */}
             <div className="bg-white p-4 rounded shadow border">
               <h3 className="font-bold text-lg mb-4 text-gray-800">📦 Productos del Catálogo</h3>
-              <div className="space-y-3">
-                {products.map((p) => {
-                  const prodId = p.id || p._id;
-                  return (
-                    <div key={prodId} className="flex justify-between items-center border p-3 rounded gap-4 hover:shadow-sm transition">
-                      <div className="flex items-center gap-3">
-                        {p.imageUrl ? (
-                          <img src={p.imageUrl} alt={p.name} className="w-12 h-12 object-cover rounded" />
-                        ) : (
-                          <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center text-xl">🛍️</div>
-                        )}
-                        <div>
-                          <p className="font-bold text-gray-800">{p.name}</p>
-                          <p className="text-green-600 font-semibold">${Number(p.price).toFixed(2)}</p>
+              
+              {products.length === 0 ? (
+                <p className="text-center text-gray-400 py-4">No hay productos en el catálogo.</p>
+              ) : (
+                <div className="space-y-3">
+                  {products.map((p) => {
+                    const prodId = p.id || p._id;
+                    return (
+                      <div key={prodId} className="flex justify-between items-center border p-3 rounded gap-4 hover:shadow-sm transition">
+                        <div className="flex items-center gap-3">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt={p.name} className="w-12 h-12 object-cover rounded border" />
+                          ) : (
+                            <div className="w-12 h-12 bg-gray-100 rounded flex items-center justify-center text-xl">🛍️</div>
+                          )}
+                          <div>
+                            <p className="font-bold text-gray-800 text-sm">{p.name}</p>
+                            <p className="text-green-600 font-semibold text-sm">${Number(p.price || 0).toFixed(2)}</p>
+                          </div>
                         </div>
-                      </div>
 
-                      {/* ACCIONES DE ROL */}
-                      {isAdmin ? (
-                        <div className="flex gap-2">
+                        {/* ACCIONES POR ROL */}
+                        {isAdmin ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleStartEdit(p)}
+                              className="bg-amber-500 text-white text-xs px-3 py-1.5 rounded hover:bg-amber-600 font-bold"
+                              title="Editar producto"
+                            >
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteProduct(prodId)}
+                              className="bg-red-600 text-white text-xs px-3 py-1.5 rounded hover:bg-red-700 font-bold"
+                              title="Eliminar producto"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                            onClick={() => handleStartEdit(p)}
-                            className="bg-amber-500 text-white text-xs px-3 py-2 rounded hover:bg-amber-600 font-bold"
-                            title="Editar producto"
+                            onClick={() => handleAddToCart(p)}
+                            className="bg-blue-600 text-white text-xs px-4 py-2 rounded hover:bg-blue-700 font-bold shadow-sm"
                           >
-                            ✏️ Editar
+                            + Añadir
                           </button>
-                          <button
-                            onClick={() => handleDeleteProduct(prodId)}
-                            className="bg-red-600 text-white text-xs px-3 py-2 rounded hover:bg-red-700 font-bold"
-                            title="Eliminar producto"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => handleAddToCart(p)}
-                          className="bg-blue-600 text-white text-xs px-4 py-2 rounded hover:bg-blue-700 font-bold"
-                        >
-                          + Añadir
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* LADO DERECHO: CARRITO (SOLO CLIENTE) O MENSAJE INFORMATIVO (ADMIN) */}
+          {/* LADO DERECHO: CARRITO (CLIENTE) O MENSAJE (ADMIN) */}
           {!isAdmin ? (
             <div className="bg-white p-4 rounded shadow border flex flex-col justify-between">
               <div>
@@ -354,7 +365,7 @@ export default function BasketManager({ currentUser }) {
                 <button
                   onClick={handleCheckout}
                   disabled={loading || !basket.items || basket.items.length === 0}
-                  className="w-full bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 disabled:bg-gray-300 transition"
+                  className="w-full bg-blue-600 text-white font-bold py-3 rounded hover:bg-blue-700 disabled:bg-gray-300 transition shadow"
                 >
                   {loading ? 'Procesando...' : '⚙️ Finalizar Compra (Checkout)'}
                 </button>
@@ -365,7 +376,7 @@ export default function BasketManager({ currentUser }) {
               <span className="text-5xl mb-3">🛠️</span>
               <p className="font-bold text-lg text-gray-700">Modo Administrador Activo</p>
               <p className="text-sm max-w-xs mt-1">
-                Usa las opciones de la izquierda para <b>añadir</b> nuevos ítems, <b>editar</b> sus precios/nombres o <b>eliminar</b> del catálogo general.
+                Usa el panel de la izquierda para <b>crear</b> productos, <b>editar</b> los existentes o <b>eliminarlos</b>. Los clientes verán los cambios inmediatamente.
               </p>
             </div>
           )}
